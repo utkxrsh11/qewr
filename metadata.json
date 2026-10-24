@@ -1,0 +1,6 @@
+{
+  "name": "StudyQuest",
+  "description": "Turn your study material into a structured course of chapters and concepts with retro pixel game styling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

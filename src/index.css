@@ -1,0 +1,199 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-dungeon: #0B0D19;
+    --bg-card: #14182B;
+    --border-dungeon: #262D4A;
+    --gold: #F5C542;
+    --teal: #2DD4BF;
+    --red: #EF4444;
+    --green: #22C55E;
+    --purple: #C084FC;
+  }
+
+  body {
+    background-color: #0B0D19;
+    color: #E2E8F0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+}
+
+.font-pixel {
+  font-family: 'Press Start 2P', monospace;
+  letter-spacing: -0.05em;
+}
+
+/* Chunky retro game buttons */
+.btn-pixel-gold {
+  background-color: #F5C542;
+  color: #0F121E;
+  font-weight: 700;
+  border: 2px solid #D9A422;
+  border-bottom: 4px solid #9E7410;
+  border-right: 4px solid #9E7410;
+  box-shadow: 0 4px 0 0 #05060A;
+  transition: all 0.08s ease-in-out;
+}
+.btn-pixel-gold:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 4px 12px rgba(245, 197, 66, 0.35);
+}
+.btn-pixel-gold:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  border-bottom-width: 2px;
+  border-right-width: 2px;
+  box-shadow: 0 1px 0 0 #05060A;
+}
+.btn-pixel-gold:disabled {
+  background-color: #3B3F54;
+  color: #7B829E;
+  border-color: #2D3142;
+  border-bottom: 4px solid #1E212D;
+  border-right: 4px solid #1E212D;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-pixel-teal {
+  background-color: #2DD4BF;
+  color: #08151D;
+  font-weight: 700;
+  border: 2px solid #14B8A6;
+  border-bottom: 4px solid #0F766E;
+  border-right: 4px solid #0F766E;
+  box-shadow: 0 4px 0 0 #05060A;
+  transition: all 0.08s ease-in-out;
+}
+.btn-pixel-teal:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 4px 12px rgba(45, 212, 191, 0.35);
+}
+.btn-pixel-teal:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  border-bottom-width: 2px;
+  border-right-width: 2px;
+  box-shadow: 0 1px 0 0 #05060A;
+}
+
+.btn-pixel-dark {
+  background-color: #1A1F36;
+  color: #E2E8F0;
+  font-weight: 600;
+  border: 2px solid #2B3356;
+  border-bottom: 4px solid #111424;
+  border-right: 4px solid #111424;
+  box-shadow: 0 4px 0 0 #05060A;
+  transition: all 0.08s ease-in-out;
+}
+.btn-pixel-dark:hover:not(:disabled) {
+  background-color: #232A47;
+  border-color: #3A4574;
+}
+.btn-pixel-dark:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  border-bottom-width: 2px;
+  border-right-width: 2px;
+  box-shadow: 0 1px 0 0 #05060A;
+}
+
+.btn-pixel-red {
+  background-color: #EF4444;
+  color: #FFFFFF;
+  font-weight: 700;
+  border: 2px solid #DC2626;
+  border-bottom: 4px solid #991B1B;
+  border-right: 4px solid #991B1B;
+  box-shadow: 0 4px 0 0 #05060A;
+  transition: all 0.08s ease-in-out;
+}
+.btn-pixel-red:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.btn-pixel-red:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  border-bottom-width: 2px;
+  border-right-width: 2px;
+  box-shadow: 0 1px 0 0 #05060A;
+}
+
+/* Dungeon card styles with glow */
+.dungeon-card {
+  background-color: #12162B;
+  border: 2px solid #232A47;
+  border-radius: 8px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.dungeon-card:hover {
+  border-color: #384370;
+  box-shadow: 0 0 16px rgba(45, 212, 191, 0.12);
+}
+
+/* Subtle scanlines effect background overlay */
+.retro-grid-bg {
+  background-color: #0B0D19;
+  background-image:
+    linear-gradient(rgba(26, 32, 60, 0.25) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(26, 32, 60, 0.25) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0B0D19;
+}
+::-webkit-scrollbar-thumb {
+  background: #232A47;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #384370;
+}
+
+/* Lie Hunter Evidence Stamp Animation */
+@keyframes stamp {
+  0% {
+    opacity: 0;
+    transform: scale(2.2) rotate(-22deg);
+  }
+  65% {
+    opacity: 1;
+    transform: scale(0.92) rotate(-11deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(-12deg);
+  }
+}
+
+.animate-stamp {
+  animation: stamp 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.15s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-stamp {
+    animation: fadeIn 0.1s ease-out forwards !important;
+    transform: rotate(0deg) !important;
+  }
+}
+

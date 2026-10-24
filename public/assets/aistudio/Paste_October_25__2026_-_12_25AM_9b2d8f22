@@ -1,0 +1,556 @@
+This is PHASE 5 of the StudyQuest app.
+
+Already built and working (DO NOT BREAK OR REWRITE THEM):
+- Phase 1: file upload (PDF, scanned PDF, PPTX, images, pasted text), Gemini
+  extraction, validated course JSON, Course Overview
+- Phase 2: levels, Learn Cards, Concept Runner (Phaser 3), Result screen,
+  question caching, progress saving ("studyquest_progress")
+- Phase 3: mastery tracking and World Map
+- Phase 4: Lie Hunter (DOM-based evidence board game) with a temporary "Choose
+  your challenge" selector on the last Learn Card
+
+Keep the same dark pixel-dungeon theme, fonts, colors, icon library, and the
+existing course and progress data structures. Only the additions and changes
+listed below are allowed. Do not build a dashboard, login, adaptive replay, or
+any feature not listed here.
+
+=====================================================================
+0. BEFORE YOU WRITE ANY CODE: INSPECT AND REPORT
+=====================================================================
+Read the existing code and tell me in 8 to 12 short lines:
+1. The exact props and onFinish result of Concept Runner and of Lie Hunter, and
+   whether Concept Runner already has onLivesChange.
+2. How level content is generated, validated, and cached for each game (cache
+   keys and what the hash covers).
+3. What the Lie Hunter module exports (gameId, name, icon, supported types,
+   introLine, controlsHelp, generator, component).
+4. Where the temporary "Choose your challenge" selector lives and which
+   localStorage keys it uses ("studyquest_game_choice_{levelId}").
+5. How results are saved to "studyquest_progress" and how the World Map reads
+   them.
+6. Anything that conflicts with the plan below.
+Then implement everything. If something conflicts with the existing code, keep
+the existing behavior working, adapt the new code, and tell me what you adapted.
+
+=====================================================================
+1. GOAL OF PHASE 5
+=====================================================================
+A) A new 2D game, PROCESS PLATFORMER, for concepts of type "process".
+B) AUTOMATIC GAME SELECTION: every concept is played in the right game:
+   - type "fact"    -> Concept Runner
+   - type "detail"  -> Lie Hunter
+   - type "process" -> Process Platformer
+C) A single level can contain several games played one after another. The
+   student sees ONE level, ONE combined Result screen, and ONE combined
+   progress update.
+D) The temporary "Choose your challenge" selector from Phase 4 is REMOVED and
+   replaced by automatic selection (see section 10).
+
+=====================================================================
+2. GAME REGISTRY AND SELECTION LOGIC
+=====================================================================
+Create a game registry module (gameRegistry) that describes every game in one
+place. Each entry has:
+- id: "runner" | "lieHunter" | "platformer"
+- name: "Concept Runner" | "Lie Hunter" | "Process Platformer"
+- icon: an icon from the icon library the app already uses
+- primaryTypes: the concept types this game is chosen for by default
+  (runner: ["fact"], lieHunter: ["detail"], platformer: ["process"])
+- supportedTypes: all types the game CAN teach
+  (runner: all three, lieHunter: all three, platformer: ["process"])
+- enabled: boolean
+- introLine and controlsHelp: short texts for the challenge intro card
+- generateContent(concepts, course, level): returns validated content for
+  exactly the given concepts
+- contentProp: the name of the prop the component receives its content under
+  ("questions" for Concept Runner, "rounds" for Lie Hunter and the Platformer),
+  so the session can render any game generically
+- Component: the game component
+
+Register Concept Runner and Lie Hunter by wrapping their EXISTING exports and
+generators. Do not rewrite them.
+
+selectGame(concept, options) must:
+1. Return the enabled game whose primaryTypes include the concept's type.
+2. If a "process" concept has fewer than 2 steps (possible in old saved
+   courses), return Concept Runner.
+3. If the chosen game is disabled, return the first enabled game whose
+   supportedTypes include the type, and finally Concept Runner.
+4. Accept an optional { preferGame, avoidGames } object. If preferGame is
+   enabled and supports the concept type, return it. If a game id is in
+   avoidGames, skip it when another enabled game supports the type. This is a
+   hook for a later phase. Build NO UI for it.
+5. Never throw.
+
+Hidden developer option: if the URL contains ?debug=1, show a small dropdown on
+the last Learn Card, "Force game for this level": Auto, Concept Runner, Lie
+Hunter, Process Platformer. Forcing a game makes every concept of the level use
+that game if it supports the concept's type, and use selectGame's normal
+choice for the rest. It must not appear without ?debug=1.
+
+=====================================================================
+3. SMALL CHANGES TO THE EXISTING GAMES (BEHAVIOR MUST STAY THE SAME)
+=====================================================================
+So that lives, streaks, and scores carry across games, ALL THREE games must
+support this shared interface:
+props: { content (under their own prop name), lives, initialStreak (default 0),
+practiceMode, muted, reduceMotion, onFinish(result), onQuit(),
+onLivesChange(lives) }
+- Concept Runner: add onLivesChange and initialStreak support if missing. Do
+  not change anything else about how it plays.
+- Lie Hunter: add initialStreak support if missing.
+- Every game's onFinish result must include: answers, score, bestStreak,
+  endStreak (the streak at the moment the segment ended), livesLeft, status.
+  If a game does not report endStreak, compute it from the trailing run of
+  correct answers in its answers list.
+- Every answer has: itemId, conceptId, gameId, correct, hinted (default false),
+  attempts (default 1), timeMs.
+Normalize old results in the session layer so older shapes still work.
+
+=====================================================================
+4. LEVEL SESSION FLOW (HOW A MIXED LEVEL PLAYS)
+=====================================================================
+Create a levelSession module that turns a level into an ordered list of
+SEGMENTS:
+- A segment = one game + the concepts of the level that use that game.
+- Group the level's concepts by the game chosen by selectGame. Order the
+  segments by the page of the first concept in each segment.
+- Example: concepts [A fact p3, B process p4, C fact p5] give segment 1
+  Concept Runner (A, C) and segment 2 Process Platformer (B).
+- Flow: Learn Cards (unchanged) -> Loading -> Challenge intro card for segment
+  1 -> game 1 -> Challenge intro card for segment 2 -> game 2 -> ... -> ONE
+  combined Result screen.
+- A level with only one segment behaves like before, without "segment 2 of 3"
+  wording. Process Platformer always shows its intro card first, because its
+  controls are new.
+
+SHARED STATE ACROSS SEGMENTS
+- The 3 lives are SHARED: pass the remaining lives into the next segment. If
+  all lives are lost, the whole level ends with the status "Out of lives" and
+  goes to the Result screen. Unplayed segments are listed as "Not reached".
+- Pass endStreak into the next segment as initialStreak, so the streak only
+  resets on a wrong answer, never between segments.
+- Scores, XP, and answers are added up across segments.
+- Practice mode (no lives) applies to every segment of the level.
+
+CHALLENGE INTRO CARD (before every segment)
+- Large game icon and name in the pixel font.
+- "Next challenge: [name]" and "Segment 2 of 3" (only if there are several).
+- The game's introLine, the names of the concepts it covers, and the
+  controlsHelp.
+- A gold "Start" button (Enter or Space) and a small "Quit level" text button.
+- Remember in localStorage "studyquest_seen_intro_{gameId}" that the student
+  has seen the full controls. After that, show a compact one-line version that
+  auto-continues after 1.5 seconds unless a key is pressed. Reuse the existing
+  Lie Hunter intro logic and key instead of duplicating it. Every game keeps
+  an Info button that reopens the full controls card.
+
+=====================================================================
+5. CONTENT GENERATION FOR A LEVEL
+=====================================================================
+Create generateLevelContent(level) that:
+1. Builds the segments (section 4).
+2. Calls each segment's generateContent in PARALLEL (Promise.all), passing only
+   that segment's concepts.
+3. Returns { segments: [{ gameId, conceptIds, content }] } after validation.
+- Concept Runner content generation stays EXACTLY as built in Phase 2. Lie
+  Hunter content generation stays EXACTLY as built in Phase 4 (2 boards per
+  concept). Only the Platformer generator is new (section 6).
+- One loading screen "Preparing your challenge..." with a status line per
+  segment, for example "Concept Runner questions: done" and "Process
+  Platformer: preparing...". Keep the Cancel button and abort all pending
+  requests when pressed.
+- Caching: keep each game's EXISTING cache key and add the new one:
+  "studyquest_questions_{levelId}" (Concept Runner),
+  "studyquest_content_{levelId}_lieHunter" (Lie Hunter),
+  "studyquest_content_{levelId}_platformer" (Platformer). The stored hash must
+  now cover only the concepts of that segment. A cache whose hash does not
+  match is simply regenerated.
+- "Regenerate questions" on the last Learn Card clears ALL game caches for the
+  level.
+- If a segment fails after its retry, show the friendly error with three
+  buttons: "Try again" (retries only failed segments), "Play these concepts in
+  Concept Runner instead" (re-assigns the failed segment's concepts to Concept
+  Runner and continues), and "Back to course". The Platformer never causes
+  this error because it has an offline fallback.
+
+=====================================================================
+6. PROCESS PLATFORMER: CONTENT
+=====================================================================
+For every "process" concept of the level, create one ORDER round from the
+concept's data (name, summary, steps, page, sourceQuote). Some concepts also
+get a CHALLENGE round.
+
+Send Gemini (server-side only, never expose the API key) ONE request for all
+process concepts of the segment, containing only those concepts' data. Use
+structured JSON output mode if available.
+
+Instructions to send to Gemini (use these rules exactly):
+
+"You are an expert teacher turning processes into ordering challenges. Using
+ONLY the concept information provided (name, summary, steps, source quote),
+create one ordering challenge per concept. Rules:
+1. title: a short challenge title, max 60 characters.
+2. instruction: one sentence telling the student what to put in order, max 120
+   characters (for example 'Put the stages of cellular respiration in the
+   correct order').
+3. steps: the process steps in the CORRECT order. Use the provided steps and
+   keep their order. Never reorder them and never invent steps that are not
+   supported by the provided information. Rewrite each step as a short, clear
+   label of at most 60 characters, with no numbering such as '1.'. If more than
+   8 steps are provided, merge neighboring steps so that there are at most 8.
+   If fewer than 2 steps are provided, return an empty steps array.
+4. For each step also provide an explanation of 1 to 2 sentences (max 200
+   characters) saying what happens in this step and why it comes at this point
+   in the process, for example what it depends on from the previous step.
+5. decoy (optional): only when there are 4 or more steps, provide ONE plausible
+   but incorrect extra step that a student could confuse with the process, for
+   example a step from a similar process mentioned in the material or a common
+   misconception. Give its label (max 60 characters) and whyNot (1 to 2
+   sentences explaining why it does not belong in this process). The decoy must
+   be clearly distinguishable from the real steps using the provided
+   information. If you cannot create a good decoy, set decoy to null.
+6. Include the conceptId and the page number exactly as provided.
+7. Return ONLY valid JSON matching the schema. No markdown, no commentary."
+
+PLATFORMER CONTENT SCHEMA
+{
+  "levelId": "ch1-L2",
+  "rounds": [
+    {
+      "id": "ch1-L2-r1",
+      "conceptId": "ch1-c4",
+      "kind": "order" | "challenge",
+      "title": "string",
+      "instruction": "string",
+      "steps": [ { "id": "ch1-L2-r1-s1", "label": "string", "explanation": "string" } ],
+      "decoy": { "id": "ch1-L2-r1-d1", "label": "string", "whyNot": "string" } | null,
+      "page": number,
+      "sourceQuote": "string"
+    }
+  ]
+}
+
+VALIDATION (implement a validator; retry once with a note listing the exact
+problems; if it still fails, use the offline fallback below):
+- every conceptId exists in the segment and is a "process" concept
+- steps has 2 to 8 items; labels non-empty, DISTINCT, within 60 characters;
+  explanations non-empty and within 200 characters
+- the number of steps is NOT greater than the concept's original step count
+- when the step count equals the concept's original step count, each label
+  must plausibly be the same step in the same position (for example share at
+  least one significant word with the original step at that index); otherwise
+  the round is invalid
+- the decoy label must not equal (case-insensitive) any real step label
+- overwrite page and sourceQuote from the course data (never trust the model)
+- unique ids
+
+OFFLINE FALLBACK (works without Gemini): build the round directly from the
+concept data: labels = the concept's steps, each cut to 60 characters with an
+ellipsis, up to 8 (merge any extra steps into the last label with " and
+further steps"); explanation = "Step N of [concept name]." followed by the
+concept summary shortened to 150 characters; decoy = null. This guarantees the
+Platformer always works, even when the AI service is down.
+
+ROUNDS PER SEGMENT
+- "order" round: one per process concept. All steps shown, the student places
+  them in order.
+- "challenge" round: a second round for the same concept ONLY if it has 4 or
+  more steps AND a valid decoy. It has the same steps plus the decoy platform,
+  and the student must NOT use the decoy.
+- Cap: at most 4 rounds per segment. If there would be more, drop challenge
+  rounds starting from the last concept until it fits.
+- Order: for each concept, the order round then its challenge round.
+
+=====================================================================
+7. PROCESS PLATFORMER: GAMEPLAY (BUILD EVERY DETAIL)
+=====================================================================
+Use Phaser 3 with Arcade Physics (same loading approach as Concept Runner). If
+Phaser cannot work reliably, use HTML canvas. Put the game in its own
+component (ProcessPlatformerGame) using the shared interface from section 3.
+The component must destroy its Phaser instance when unmounted and must never
+create two instances at once.
+
+PAGE LAYOUT
+- HUD (DOM, above the canvas): 3 pixel hearts, score, streak ("Streak x3"),
+  round label ("Round 1 of 2"), progress ("Step 3 of 6"), Hint button showing
+  remaining hints ("Hint (2)"), Info, Pause, and Mute buttons.
+- Instruction panel (DOM): the round's title and instruction in readable body
+  text.
+- "Sequence so far" panel (DOM): N numbered slots in order. Empty slots show
+  the number and "?". A correctly placed step fills its slot with its label
+  (green outline). This tells the student how many steps there are and shows
+  the process building up.
+- Canvas below (or beside on wide screens), 16:9, scales to the container
+  width (Phaser Scale FIT, minimum 320 px wide), pixel-art rendering
+  (image-rendering: pixelated, antialias off).
+- Touch controls on touch devices: large Left, Right, and Jump buttons plus a
+  Hint button. Prevent page scrolling while touching the canvas or buttons.
+
+WORLD (virtual resolution 960 x 540, scaled to the container)
+- One screen, no scrolling, dungeon background with at least 2 parallax layers
+  (disabled in reduce-motion mode), a solid stone GROUND along the bottom at
+  y = 510 that the player can always walk on. NO pits, NO instant-death zones,
+  so the player can never get stuck.
+- A START sign at the far left of the ground where the player spawns.
+- All art is code-drawn (rectangles and simple pixel sprites); no image files.
+  Platforms look like stone or wooden slabs with a visible top surface and the
+  step text printed on them.
+
+PLATFORM LAYOUT ALGORITHM (always reachable, never overlapping, readable)
+- P = number of steps (+1 for a challenge round with a decoy). P is 2 to 9.
+- Platform size 180 x 48 virtual pixels (minimum 140 wide if P is more than 7).
+- Three tiers at y = 390, 280, and 170. Spread platforms over the tiers as
+  evenly as possible, filling the lower tiers first when it does not divide
+  evenly (7 platforms = 3 low, 2 middle, 2 high).
+- Within a tier, spread platforms evenly over x from 40 to 920 with a gap of
+  40 to 160 between neighbors. Stagger tiers by 40 px alternately so they do
+  not stack in columns. Add random jitter of up to 12 px in x and y without
+  breaking the gap rules.
+- Reachability (verify in code, re-roll the layout if violated): the vertical
+  difference between adjacent tiers is at most 120 (jump height is about 150),
+  and every platform has a neighbor within 200 px horizontally.
+- Assignment: shuffle which step sits on which platform. Re-shuffle until the
+  steps are NOT in correct order when read left to right and top to bottom, and
+  step 1 is NOT on the lowest tier closest to the start sign. The decoy is
+  placed like any other platform.
+- Text on platforms wraps to up to 3 lines and auto-shrinks to a minimum of 11
+  CSS px equivalent. If it still does not fit, truncate with an ellipsis ON THE
+  CANVAS ONLY, because the full text of every step is always available in the
+  DOM.
+- DOM list of all platform labels in shuffled order (readable by screen
+  readers, and visible through a small "Show steps list" toggle under the
+  canvas) so nothing is ever cut off.
+- If layout generation fails 10 times in a row, fall back to a simple evenly
+  spaced two-tier layout.
+
+PLAYER AND PHYSICS (gentle and forgiving)
+- Pixel character with idle, run, and jump animation (2 to 4 frames or a
+  bobbing effect).
+- Gravity 900, run speed 220, jump height about 150 virtual pixels, variable
+  jump height (releasing the key early cuts the jump), coyote time 100 ms,
+  jump buffering 100 ms.
+- Platforms are ONE-WAY: the player can jump up through them and only collides
+  when falling onto the top.
+- Invisible walls keep the player on screen.
+
+HOW A STEP IS CHOSEN (walking across platforms must not count as answering)
+- A platform is chosen only when the player STANDS on it for 600 ms without
+  leaving it. A small filling bar on the platform edge shows the progress.
+  Leaving the platform cancels and resets the bar.
+- The intro card says: "Stand on a platform for a moment to choose it."
+- Platforms already placed correctly cannot be chosen again; they stay as safe
+  platforms to walk on.
+- Every choice is checked against the next expected step.
+
+CORRECT CHOICE
+- The platform turns green and keeps a badge with its sequence number, "+100"
+  floats up, happy sound, the matching slot in "Sequence so far" fills, the
+  streak increases by one.
+- A NON-BLOCKING caption under the canvas shows the step's explanation for 3
+  seconds (the game does not pause). It is also announced through aria-live.
+
+WRONG CHOICE (a real step in the wrong place, or the decoy)
+- The platform shakes for 400 ms, then crumbles and falls; the player drops to
+  the ground; one life is lost (not in practice mode); the streak resets to 0;
+  red flash and lose-life sound (no screen shake in reduce-motion mode). Call
+  onLivesChange.
+- A BLOCKING explanation panel stops the game until the student presses
+  "Continue" or Enter, showing:
+  * for a wrong real step: "That step comes later." and "Next step: [label of
+    the expected step]" with its explanation. Do NOT reveal which platform it is
+    on.
+  * for the decoy: "That doesn't belong in this process." and the decoy's
+    whyNot.
+  * "From the PDF: [pageLabel] N" (use the course's pageLabel if the app has
+    one, otherwise "Page") with the source quote in italics.
+- After Continue, the crumbled platform RESPAWNS after 1.5 seconds in the same
+  place (fade-in with a dust effect). If the player is standing there, wait
+  until the spot is free. The round always stays solvable.
+- The student may keep trying the same step until correct or out of lives. Only
+  the FIRST choice for each step counts for scoring and mastery.
+
+HINTS
+- 2 hints per round (Hint button or key H). A hint makes the platform with the
+  correct next step pulse with a bright outline for 3 seconds.
+- Outside practice mode a hint costs 25 points (score never below 0), and that
+  step counts as NOT correct first try (answer marked "hinted"). A correct
+  choice after a hint gives +25 instead of +100 and no streak increase.
+- In practice mode hints are free and unlimited in effect (no point cost).
+
+ROUND COMPLETION
+- When the last real step is placed, play a short celebration and show a
+  blocking "Sequence complete" panel with the full ordered list of steps and
+  explanations, the page tag with the source quote, and a "Continue" button.
+- Bonus +150 points if the round had no wrong choices and no hints.
+- Then the next round starts with a new layout. After the last round the
+  segment ends.
+
+CHALLENGE ROUND EXTRAS
+- A banner at the start: "Challenge: one platform does NOT belong. Don't step
+  on it."
+- The decoy looks identical to real steps. Choosing it is a wrong choice (the
+  explanation uses whyNot).
+- Placing all real steps ends the round. The decoy platform then turns red and
+  the "Sequence complete" panel also lists it as "Not part of the process" with
+  its whyNot text.
+
+CONTROLS (all must work)
+- Keyboard: Left/Right or A/D move; Up, W, or Space jump; H hint; P or Escape
+  pause.
+- Touch: on-screen Left, Right, Jump (hold to move), and Hint buttons.
+- Pause overlay with "Resume" and "Quit level". The game auto-pauses when the
+  tab loses focus.
+
+SOUND (Web Audio API, no audio files; use the existing sound helper and the
+existing mute setting "studyquest_muted"; start only after the first user
+interaction): jump, land (soft), correct, wrong, crumble, round complete. Add
+them to the existing helper instead of creating a second one.
+
+ACCESSIBILITY AND SIMPLE MODE
+- Respect the existing Reduce motion setting and prefers-reduced-motion:
+  disable parallax and screen shake and slow the player slightly.
+- SIMPLE MODE (an alternative to jumping), toggled from the Info card and the
+  HUD, remembered under "studyquest_simple_platformer". The round shows the
+  steps as large shuffled cards. The student taps or presses them (keys 1 to 9)
+  in the order they believe is correct. It uses EXACTLY the same rules:
+  first-try scoring, wrong choices and lives, explanations, hints, decoy
+  handling, rounds, "Sequence so far" panel, and results. No standing delay is
+  needed.
+- If Phaser cannot start, switch automatically to simple mode with the message
+  "The game could not load. Switching to simple mode."
+- aria-live announcements for every correct and wrong choice, round start, and
+  round completion.
+- Every control is reachable by keyboard with a visible focus outline.
+
+SCORING SUMMARY (consistent with the other games)
+- +100 per step correct first time, with the streak bonus (+25 per streak
+  step, capped at +100 on that step), +25 for a step that was hinted or
+  corrected, +150 round bonus, -25 per hint outside practice mode (floor 0).
+- XP follows the existing rule: 10 XP per first-try-correct step (none for
+  hinted steps), plus the existing level completion bonuses.
+
+=====================================================================
+8. RESULT CONTRACT AND COMBINED RESULT
+=====================================================================
+onFinish(result) of ProcessPlatformerGame returns:
+- answers: one entry PER REAL STEP of every round:
+  { itemId (step id), conceptId, gameId: "platformer", correct (true only if
+  the first choice was right AND no hint was used for that step), hinted,
+  attempts, chosenId (the first chosen platform's id), correctId, timeMs }.
+  The decoy never gets its own answer. Choosing the decoy counts as a wrong
+  first attempt for the step the student was on.
+- score, bestStreak, endStreak, livesLeft, status ("completed" | "outOfLives"
+  | "quit")
+- rounds: [{ roundId, conceptId, kind, mistakes, hintsUsed }]
+
+The levelSession merges the results of all segments into ONE LevelResult:
+- all answers in one list, each with its gameId
+- totals: score, accuracy (first-try-correct items divided by all items across
+  ALL games), best streak, lives left, XP, stars (same thresholds as before)
+- per-segment info: gameId, concept names, items correct and total, status
+
+=====================================================================
+9. RESULT SCREEN CHANGES
+=====================================================================
+Keep everything from Phases 2 to 4 and add:
+1. A "Challenges" row of chips, one per segment (game icon, name, "5/6
+   correct"; "Not reached" for unplayed segments after running out of lives).
+2. In "Concepts review", the game icon next to each concept's name.
+3. In "Mistakes to review", platformer mistakes appear as "[Concept]: you
+   placed '[chosen label]' as step N, but step N is '[correct label]'", then the
+   explanation and the page tag with the source quote. Decoy mistakes show
+   "'[decoy label]' does not belong in this process" with the whyNot text. Steps
+   that needed a hint go in a small separate group "Steps you needed a hint
+   for". Concept Runner and Lie Hunter mistakes keep their existing formats and
+   are shown in segment order.
+4. "Play again" regenerates new layouts and reshuffles every game, reusing the
+   caches and never calling Gemini again.
+5. "Next level", "Back to course", and "Review concepts" stay.
+
+=====================================================================
+10. LEARN CARD CHANGES (REPLACING THE TEMPORARY SELECTOR)
+=====================================================================
+- REMOVE the Phase 4 "Choose your challenge" selector from the last Learn
+  Card. Stop reading and writing "studyquest_game_choice_{levelId}" (you may
+  delete leftover values).
+- In its place, above the start button, show "Games in this level" chips with
+  the game icons and counts, for example "Concept Runner (2)", "Lie Hunter
+  (1)", "Process Platformer (1)".
+- If the level contains a process concept, add the tip: "In Process Platformer
+  you put steps in order. Stand on a platform to choose it."
+- Keep the "Practice mode (no lives)" toggle, the "Regenerate questions" link,
+  and the ?debug=1 force option.
+- In the Course Overview level strip, show tiny game icons on each level
+  button for the games it contains.
+
+=====================================================================
+11. PROGRESS SAVING AND WORLD MAP COMPATIBILITY
+=====================================================================
+Keep the "studyquest_progress" structure. After each finished level (not in
+practice mode):
+- concepts[conceptId].answered += the number of items for that concept in every
+  game it was played in (questions for the runner, rounds for Lie Hunter, steps
+  for the platformer)
+- concepts[conceptId].correct += first-try-correct items
+- concepts[conceptId].lastGame and gamesPlayed (unique array of game ids), both
+  optional, so old saved progress keeps working
+- Level bestStars, bestScore, attempts, and completed use the combined result.
+- The World Map and the mastery calculation must need no change. Verify that a
+  process concept played in the platformer changes its node color correctly
+  (80% or more green, 50 to 79% yellow, below 50% red).
+- Build the new progress object first, then write it once. Wrap localStorage
+  access in try/catch.
+
+=====================================================================
+12. SAMPLE COURSE (TESTING WITHOUT GEMINI)
+=====================================================================
+Make sure the built-in sample course contains at least two "process" concepts
+(one with 5 steps, one with 3 steps), at least two "fact" concepts, and at
+least one "detail" concept, arranged so that at least one level mixes all
+three types. Add hard-coded Process Platformer content for its process concepts
+(including one challenge round with a decoy and whyNot text). Together with
+the existing hard-coded Concept Runner and Lie Hunter content, a mixed level
+must be fully playable offline.
+
+=====================================================================
+13. ERROR HANDLING
+=====================================================================
+Friendly messages for students; technical details only in the console with
+specific codes (for example PLATFORMER_CONTENT_INVALID, PHASER_INIT_FAILED,
+SEGMENT_GENERATION_FAILED):
+- Platformer content invalid after retry: silently use the offline fallback and
+  show a small note on the intro card: "Steps were taken directly from your
+  material." No error screen.
+- Phaser fails to start: switch to simple mode (section 7).
+- Gemini unreachable or rate-limited for other segments: keep the existing
+  messages ("We couldn't reach the AI service..." and "The AI service is busy
+  right now...") and the three-button error from section 5.
+- Generation timeout (90 seconds): "This is taking too long. Try again."
+- Quitting mid-level saves no progress (as before).
+
+=====================================================================
+14. CODE QUALITY AND STRUCTURE
+=====================================================================
+New or changed modules (keep Phases 1 to 4 intact):
+- gameRegistry, selectGame, levelSession (segments, shared lives and streak,
+  merging results), generateLevelContent
+- platformerService (Gemini call, validation, offline fallback, layout
+  algorithm with reachability check)
+- ProcessPlatformerGame, PlatformerSimpleMode, ChallengeIntroCard,
+  GamesInLevelChips
+- Update LearnCardView, LevelStrip, ResultView, progressService, and the two
+  existing game components (only the shared-interface additions in section 3)
+- Define the new types (Segment, PlatformerRound, PlatformerStep, StepAnswer,
+  LevelResult) in the shared types file.
+- Add short comments to every module. No dead code, no fake features, no
+  console errors during normal play. Remove nothing from earlier phases except
+  the temporary selector.
+
+=====================================================================
+15. WHEN YOU ARE DONE
+=====================================================================
+Give me a short summary: the files you created or changed, how game selection
+works, how a mixed level flows from click to result, the answers to the
+questions in section 0, and anything you could not implement. Do not add any
+feature that is not listed above.
