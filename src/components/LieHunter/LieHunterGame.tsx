@@ -35,6 +35,7 @@ export interface LieHunterGameProps {
   rounds: LieHunterRound[];
   level: Level;
   lives?: number;
+  initialStreak?: number;
   practiceMode?: boolean;
   muted?: boolean;
   reduceMotion?: boolean;
@@ -47,6 +48,7 @@ export const LieHunterGame: React.FC<LieHunterGameProps> = ({
   rounds,
   level,
   lives: initialLives = 3,
+  initialStreak = 0,
   practiceMode = false,
   muted: initialMuted = isAudioMuted(),
   reduceMotion: initialReduceMotion = false,
@@ -58,8 +60,8 @@ export const LieHunterGame: React.FC<LieHunterGameProps> = ({
   const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
   const [livesLeft, setLivesLeft] = useState(initialLives);
   const [score, setScore] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [bestStreak, setBestStreak] = useState(0);
+  const [streak, setStreak] = useState(initialStreak);
+  const [bestStreak, setBestStreak] = useState(initialStreak);
   const [magnifiersLeft, setMagnifiersLeft] = useState(2);
 
   // Settings state
@@ -251,6 +253,7 @@ export const LieHunterGame: React.FC<LieHunterGameProps> = ({
         status: status === 'outOfLives' ? 'outOfLives' : status === 'quit' ? 'quit' : 'completed',
         score,
         bestStreak,
+        endStreak: streak,
         livesLeft,
         totalQuestions: totalRounds,
         correctCount: firstTryCorrectCount,
@@ -265,7 +268,7 @@ export const LieHunterGame: React.FC<LieHunterGameProps> = ({
 
       onFinish(result);
     },
-    [bestStreak, level, livesLeft, onFinish, practiceMode, rounds, score, totalRounds]
+    [bestStreak, level, livesLeft, onFinish, practiceMode, rounds, score, streak, totalRounds]
   );
 
   // Confirm Accusation

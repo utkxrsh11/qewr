@@ -1,17 +1,22 @@
 import React, { useState, useMemo } from 'react';
-import { Course, Chapter, Concept, Level } from '../../types/course.ts';
+import { Course, Chapter, Concept, Level, StudyQuestProgress } from '../../types/course.ts';
 import { useMastery, getChapterMastery, getConceptStats } from '../../services/masteryStore.ts';
+import { isDue } from '../../services/masteryModel.ts';
+import { DueBanner } from '../Revision/DueBanner.tsx';
 import { JourneysNode, RealmConfig } from './JourneysNode.tsx';
 import { JourneysSidebar } from './JourneysSidebar.tsx';
 import { ConceptDetailModal } from './ConceptDetailModal.tsx';
 import { buildLevels } from '../../services/levelBuilder.ts';
-import { X, Compass, ChevronLeft, MapPin } from 'lucide-react';
+import { X, Compass, ChevronLeft, MapPin, BarChart2, Sparkles } from 'lucide-react';
 
 interface WorldMapViewProps {
   course: Course;
+  progress?: StudyQuestProgress;
   onBackToCourse: () => void;
   onPracticeConcept: (concept: Concept, chapter: Chapter) => void;
   onSelectLevel?: (level: Level) => void;
+  onOpenDashboard?: () => void;
+  onStartSmartRevision?: () => void;
 }
 
 // 5 Iconic Realms matching the Journeys World Map reference design

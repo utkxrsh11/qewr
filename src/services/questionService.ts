@@ -88,6 +88,72 @@ function findSampleQuestionsForLevel(concepts: Concept[]): Question[] | null {
 }
 
 /**
+ * For revision sessions: selects 2 questions per concept (1 medium, 1 hard if available).
+ */
+function filterRevisionQuestions(questions: Question[], concepts: Concept[]): Question[] {
+  const result: Question[] = [];
+  const byConcept = new Map<string, Question[]>();
+  questions.forEach((q) => {
+    const list = byConcept.get(q.conceptId) || [];
+    list.push(q);
+    byConcept.set(q.conceptId, list);
+  });
+
+  concepts.forEach((c) => {
+    const qs = byConcept.get(c.id) || [];
+    // Prioritize 1 hard and 1 medium
+    const hard = qs.find((q) => q.difficulty === 'hard');
+    const medium = qs.find((q) => q.difficulty === 'medium');
+    const easy = qs.find((q) => q.difficulty === 'easy');
+
+    const chosen: Question[] = [];
+    if (medium) chosen.push(medium);
+    if (hard && hard.id !== medium?.id) chosen.push(hard);
+    if (chosen.length < 2 && easy && !chosen.some((x) => x.id === easy.id)) chosen.push(easy);
+    // If still less than 2, take whatever is available
+    qs.forEach((q) => {
+      if (chosen.length < 2 && !chosen.some((x) => x.id === q.id)) {
+        chosen.push(q);
+      }
+    });
+
+    result.push(...chosen);
+  });
+
+  return result.length > 0 ? result : questions;
+}
+
+/**
+ * Searches localStorage for existing cached questions for concepts.
+ */
+function findCachedQuestionsFromStorage(concepts: Concept[]): Question[] | null {
+  try {
+    const pool: Question[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(CACHE_PREFIX) && !key.includes('rev-')) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed?.questions)) {
+            parsed.questions.forEach((q: Question) => {
+              if (!pool.some((x) => x.id === q.id)) {
+                pool.push(q);
+              }
+            });
+          }
+        }
+      }
+    }
+    const filtered = filterRevisionQuestions(pool, concepts);
+    return filtered.length >= concepts.length ? filtered : null;
+  } catch {
+    return null;
+  }
+}
+
+
+/**
  * Loads questions for a level, checking cache, sample question bank, server-side Gemini,
  * and resilient local procedural generation fallback.
  */
@@ -125,8 +191,21 @@ export async function loadLevelQuestions({
     const matchingSampleQuestions = findSampleQuestionsForLevel(level.concepts);
     if (matchingSampleQuestions && matchingSampleQuestions.length > 0) {
       console.log(`[QuestionService] Using concept sample questions for level ${level.id}`);
-      saveCachedQuestions(level.id, conceptHash, matchingSampleQuestions);
-      return matchingSampleQuestions;
+      const finalQs = level.isRevision
+        ? filterRevisionQuestions(matchingSampleQuestions, level.concepts)
+        : matchingSampleQuestions;
+      saveCachedQuestions(level.id, conceptHash, finalQs);
+      return finalQs;
+    }
+
+    // 3b. For revision levels: check all cached level questions in localStorage
+    if (level.isRevision) {
+      const plucked = findCachedQuestionsFromStorage(level.concepts);
+      if (plucked && plucked.length >= level.concepts.length) {
+        console.log(`[QuestionService] Reusing previously cached questions for revision ${level.id}`);
+        saveCachedQuestions(level.id, conceptHash, plucked);
+        return plucked;
+      }
     }
   }
 
@@ -159,8 +238,9 @@ export async function loadLevelQuestions({
 
     if (response.ok) {
       const result = await response.json();
-      const questions: Question[] = result.questions || [];
-      if (questions.length > 0) {
+      const rawQuestions: Question[] = result.questions || [];
+      if (rawQuestions.length > 0) {
+        const questions = level.isRevision ? filterRevisionQuestions(rawQuestions, level.concepts) : rawQuestions;
         saveCachedQuestions(level.id, conceptHash, questions);
         return questions;
       }
@@ -175,7 +255,8 @@ export async function loadLevelQuestions({
   // 5. Zero-failure local procedural generation fallback
   // Generates complete, validated exam questions directly from concept definitions & quotes
   console.log(`[QuestionService] Generating robust procedural challenge for level ${level.id}`);
-  const fallback = generateFallbackQuestions(level.concepts);
+  const rawFallback = generateFallbackQuestions(level.concepts);
+  const fallback = level.isRevision ? filterRevisionQuestions(rawFallback, level.concepts) : rawFallback;
   saveCachedQuestions(level.id, conceptHash, fallback);
   return fallback;
 }

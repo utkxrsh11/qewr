@@ -201,6 +201,50 @@ function generateProceduralClientBoards(levelId: string, concepts: Concept[]): L
 }
 
 /**
+ * For revision sessions: selects 1 board per concept (preferring hard difficulty).
+ */
+function filterRevisionBoards(rounds: LieHunterRound[], concepts: Concept[]): LieHunterRound[] {
+  const result: LieHunterRound[] = [];
+  concepts.forEach((concept) => {
+    const conceptRounds = rounds.filter((r) => r.conceptId === concept.id);
+    const hard = conceptRounds.find((r) => (r as any).difficulty === 'hard');
+    const chosen = hard || conceptRounds[0];
+    if (chosen) result.push(chosen);
+  });
+  return result.length > 0 ? result : rounds;
+}
+
+/**
+ * Searches localStorage for existing cached Lie Hunter rounds for concepts.
+ */
+function findCachedLieHunterFromStorage(concepts: Concept[]): LieHunterRound[] | null {
+  try {
+    const pool: LieHunterRound[] = [];
+    // Include built-in sample boards
+    Object.values(SAMPLE_LIE_HUNTER_BOARDS).forEach((boards) => {
+      boards.forEach((b) => pool.push(b));
+    });
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(CACHE_PREFIX) && key.includes(CACHE_SUFFIX) && !key.includes('rev-')) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed?.rounds)) {
+            parsed.rounds.forEach((r: LieHunterRound) => pool.push(r));
+          }
+        }
+      }
+    }
+    const filtered = filterRevisionBoards(pool, concepts);
+    return filtered.length >= concepts.length ? filtered : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Loads Lie Hunter rounds for a level:
  * 1. Checks cache (matches hash)
  * 2. Checks sample registry (instant offline play for sample course)
@@ -234,8 +278,19 @@ export async function loadLieHunterRounds({
     if (SAMPLE_LIE_HUNTER_BOARDS[level.id]) {
       console.log(`[LieHunter] Using sample boards for level ${level.id}`);
       const rounds = SAMPLE_LIE_HUNTER_BOARDS[level.id];
-      saveCachedLieHunterRounds(level.id, conceptHash, rounds);
-      return shuffleLieHunterStatements(rounds);
+      const finalRounds = level.isRevision ? filterRevisionBoards(rounds, level.concepts) : rounds;
+      saveCachedLieHunterRounds(level.id, conceptHash, finalRounds);
+      return shuffleLieHunterStatements(finalRounds);
+    }
+
+    // 2b. If revision session, look for cached boards across localStorage & samples
+    if (level.isRevision) {
+      const plucked = findCachedLieHunterFromStorage(level.concepts);
+      if (plucked && plucked.length >= level.concepts.length) {
+        console.log(`[LieHunter] Reusing previously cached boards for revision ${level.id}`);
+        saveCachedLieHunterRounds(level.id, conceptHash, plucked);
+        return shuffleLieHunterStatements(plucked);
+      }
     }
   }
 
@@ -267,8 +322,9 @@ export async function loadLieHunterRounds({
 
     if (response.ok) {
       const data = await response.json();
-      const rounds: LieHunterRound[] = data.rounds || [];
-      if (rounds.length > 0) {
+      const rawRounds: LieHunterRound[] = data.rounds || [];
+      if (rawRounds.length > 0) {
+        const rounds = level.isRevision ? filterRevisionBoards(rawRounds, level.concepts) : rawRounds;
         saveCachedLieHunterRounds(level.id, conceptHash, rounds);
         return shuffleLieHunterStatements(rounds);
       }
@@ -285,7 +341,8 @@ export async function loadLieHunterRounds({
 
   // 4. Procedural fallback to guarantee zero failures
   console.log(`[LieHunter] Using procedural fallback boards for level ${level.id}`);
-  const fallback = generateProceduralClientBoards(level.id, level.concepts);
+  const rawFallback = generateProceduralClientBoards(level.id, level.concepts);
+  const fallback = level.isRevision ? filterRevisionBoards(rawFallback, level.concepts) : rawFallback;
   saveCachedLieHunterRounds(level.id, conceptHash, fallback);
   return fallback;
 }

@@ -1,14 +1,20 @@
 import React, { useState } from 'react';
-import { Concept } from '../types/course.ts';
-import { Quote, ChevronDown, ChevronUp, Layers, CheckCircle2 } from 'lucide-react';
+import { Concept, ConceptProgress } from '../types/course.ts';
+import { stateOf, isDue, strength } from '../services/masteryModel.ts';
+import { Quote, ChevronDown, ChevronUp, Layers, CheckCircle2, Clock } from 'lucide-react';
 
 interface ConceptCardProps {
   concept: Concept;
+  conceptProgress?: ConceptProgress;
 }
 
-export const ConceptCard: React.FC<ConceptCardProps> = ({ concept }) => {
+export const ConceptCard: React.FC<ConceptCardProps> = ({ concept, conceptProgress }) => {
   const [showSource, setShowSource] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
+
+  const isDueForReview = isDue(conceptProgress);
+  const conceptState = stateOf(conceptProgress);
+  const strengthVal = Math.round(strength(conceptProgress) * 100);
 
   // Type badge styling
   const getTypeBadge = () => {
@@ -50,12 +56,36 @@ export const ConceptCard: React.FC<ConceptCardProps> = ({ concept }) => {
       <div>
         {/* Top Meta Header: Type badge & Page tag */}
         <div className="flex items-center justify-between gap-2 mb-3">
-          <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${badge.classes}`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} aria-hidden="true" />
-            {badge.label}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider ${badge.classes}`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} aria-hidden="true" />
+              {badge.label}
+            </span>
+
+            {/* Mastery & Due Chip */}
+            {conceptProgress && conceptProgress.answered > 0 && (
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border ${
+                  conceptState === 'mastered'
+                    ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                    : conceptState === 'shaky'
+                    ? 'bg-amber-950 text-amber-300 border-amber-700'
+                    : 'bg-red-950 text-red-300 border-red-700'
+                }`}
+              >
+                <span>{strengthVal}%</span>
+              </span>
+            )}
+
+            {isDueForReview && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold animate-pulse">
+                <Clock className="w-3 h-3 text-amber-400" />
+                <span>Due</span>
+              </span>
+            )}
+          </div>
 
           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-[#1B213D] text-slate-300 border border-[#2B355E]">
             Page {concept.page}

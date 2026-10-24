@@ -1,7 +1,6 @@
 /**
- * StudyQuest App (Phase 1 & Phase 2)
- * Full playable loop:
- * Course Overview -> choose a level -> Learn Card -> Concept Runner game -> Result screen -> back to course.
+ * StudyQuest App (Phase 5)
+ * Multi-Game Automatic Selection, Process Platformer, and Unified Level Sessions.
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -15,13 +14,14 @@ import {
   Concept,
   LieHunterRound,
   GameChoice,
+  LevelSegment,
 } from './types/course.ts';
 import { UploadView } from './components/UploadView.tsx';
 import { ProcessingView } from './components/ProcessingView.tsx';
 import { CourseOverviewView } from './components/CourseOverviewView.tsx';
 import { WorldMapView } from './components/WorldMap/WorldMapView.tsx';
 import { LearnCardView } from './components/LearnCardView.tsx';
-import { QuestionLoadingView } from './components/QuestionLoadingView.tsx';
+import { QuestionLoadingView, SegmentStatusItem } from './components/QuestionLoadingView.tsx';
 import { GameView } from './components/GameView.tsx';
 import { ResultView } from './components/ResultView.tsx';
 import {
@@ -31,13 +31,17 @@ import {
 } from './services/storage.ts';
 import { startExtractionStream } from './services/courseApi.ts';
 import { buildLevels } from './services/levelBuilder.ts';
-import { loadLevelQuestions, clearAllQuestionCaches } from './services/questionService.ts';
-import { loadLieHunterRounds, shuffleLieHunterStatements } from './services/lieHunterService.ts';
-import { getInitialGameChoice } from './components/GameChoiceSelector.tsx';
+import { clearAllQuestionCaches } from './services/questionService.ts';
+import { shuffleLieHunterStatements } from './services/lieHunterService.ts';
 import { loadProgress, recordLevelResult, clearProgress } from './services/progressService.ts';
 import { shuffleQuestionsWithProgression } from './services/questionValidator.ts';
-import { generateFallbackQuestions } from './services/fallbackQuestionGenerator.ts';
-import { Sparkles, Coins, Compass } from 'lucide-react';
+import { GAME_REGISTRY } from './services/gameRegistry.ts';
+import {
+  buildLevelSegments,
+  generateLevelContent,
+  clearAllLevelCaches,
+} from './services/levelSession.ts';
+import { Coins, Compass } from 'lucide-react';
 
 type AppView =
   | 'upload'
@@ -61,11 +65,12 @@ export default function App() {
     technical?: string;
   } | null>(null);
 
-  // Phase 2 & 4: Gameplay State
+  // Gameplay & Multi-Segment State
   const [currentLevel, setCurrentLevel] = useState<Level | null>(null);
-  const [currentGameChoice, setCurrentGameChoice] = useState<GameChoice>('runner');
-  const [currentQuestions, setCurrentQuestions] = useState<Question[]>([]);
-  const [currentRounds, setCurrentRounds] = useState<LieHunterRound[]>([]);
+  const [currentSegments, setCurrentSegments] = useState<LevelSegment[]>([]);
+  const [segmentContents, setSegmentContents] = useState<Record<string, any>>({});
+  const [segmentStatuses, setSegmentStatuses] = useState<SegmentStatusItem[]>([]);
+  const [lastForceGame, setLastForceGame] = useState<GameChoice | 'auto'>('auto');
   const [practiceMode, setPracticeMode] = useState(false);
   const [levelResult, setLevelResult] = useState<LevelResult | null>(null);
   const [progress, setProgress] = useState<StudyQuestProgress>(loadProgress());
@@ -73,7 +78,6 @@ export default function App() {
     message: string;
     technical?: string;
   } | null>(null);
-
 
   // Keep last extraction payload to enable "Try again"
   const lastExtractionPayloadRef = useRef<{
@@ -184,23 +188,22 @@ export default function App() {
     clearAllQuestionCaches();
     setCourse(null);
     setCurrentLevel(null);
-    setCurrentQuestions([]);
+    setCurrentSegments([]);
+    setSegmentContents({});
     setLevelResult(null);
     setProgress({ totalXp: 0, levels: {}, concepts: {} });
     setCurrentView('upload');
   };
 
   // ---------------------------------------------------------------------------
-  // Phase 2 Handlers: Level & Game Play Flow
+  // Level & Game Play Flow (Phase 5 Automatic Multi-Segment Selection)
   // ---------------------------------------------------------------------------
 
-  // Select a level to view its Learn Card
   const handleSelectLevel = (level: Level) => {
     setCurrentLevel(level);
     setCurrentView('learn-card');
   };
 
-  // Main "Start learning" button: starts first uncompleted level
   const handleStartLearning = () => {
     if (allLevels.length === 0) return;
     const firstUncompleted =
@@ -208,12 +211,11 @@ export default function App() {
     handleSelectLevel(firstUncompleted);
   };
 
-  // Start question or round loading and jump to the game
   const handleStartGame = async (
     isPractice: boolean,
     forceRegenerate = false,
     targetLevel?: Level,
-    selectedGame?: GameChoice
+    forceGame: GameChoice | 'auto' = 'auto'
   ) => {
     const levelToPlay = targetLevel || currentLevel;
     if (!levelToPlay || !course) return;
@@ -221,50 +223,71 @@ export default function App() {
     if (targetLevel) {
       setCurrentLevel(targetLevel);
     }
-    const gameToPlay = selectedGame || currentGameChoice || getInitialGameChoice(levelToPlay);
-    setCurrentGameChoice(gameToPlay);
     setPracticeMode(isPractice);
+    setLastForceGame(forceGame);
     setQuestionLoadError(null);
+
+    // Build segments according to automatic game selection rules
+    const segments = buildLevelSegments(
+      levelToPlay,
+      forceGame !== 'auto' ? { forceGame } : undefined
+    );
+    setCurrentSegments(segments);
+
+    // Initial status lines for loading screen
+    const initialStatuses: SegmentStatusItem[] = segments.map((seg) => {
+      const gEntry = GAME_REGISTRY[seg.gameId];
+      return {
+        gameId: seg.gameId,
+        name: `${gEntry.name}${seg.gameId === 'runner' ? ' questions' : ''}`,
+        status: 'preparing',
+      };
+    });
+    setSegmentStatuses(initialStatuses);
     setCurrentView('loading-questions');
 
     const controller = new AbortController();
     questionGenAbortRef.current = controller;
 
     try {
-      if (gameToPlay === 'lieHunter') {
-        const rounds = await loadLieHunterRounds({
-          level: levelToPlay,
-          courseTitle: course.courseTitle,
-          isSampleCourse,
-          forceRegenerate,
-          signal: controller.signal,
-        });
+      const result = await generateLevelContent({
+        level: levelToPlay,
+        course,
+        segments,
+        forceRegenerate,
+        onSegmentStatus: (gameId, status) => {
+          setSegmentStatuses((prev) =>
+            prev.map((s) => (s.gameId === gameId ? { ...s, status } : s))
+          );
+        },
+        signal: controller.signal,
+      });
 
-        setCurrentRounds(rounds);
-        setCurrentView('game');
-      } else {
-        const questions = await loadLevelQuestions({
-          level: levelToPlay,
-          courseTitle: course.courseTitle,
-          isSampleCourse,
-          forceRegenerate,
-          signal: controller.signal,
-        });
+      if (controller.signal.aborted) return;
 
-        setCurrentQuestions(questions);
-        setCurrentView('game');
+      if (result.hasFailure) {
+        const failed = result.segments.find((s) => !s.content || s.error);
+        setQuestionLoadError({
+          message: failed?.error?.message || "We couldn't build challenges for this level.",
+          technical: failed?.error?.technical,
+        });
+        return;
       }
+
+      // Populate segment contents
+      const contentsMap: Record<string, any> = {};
+      result.segments.forEach((seg) => {
+        contentsMap[seg.segmentId] = seg.content;
+      });
+
+      setSegmentContents(contentsMap);
+      setCurrentView('game');
     } catch (err: any) {
       if (controller.signal.aborted) return;
       console.error('Failed to load level content:', err);
-      const isLie = gameToPlay === 'lieHunter';
       setQuestionLoadError({
-        message:
-          err?.message ||
-          (isLie
-            ? "We couldn't build a good case file for this level."
-            : "We couldn't build a good challenge for this level. Try again or choose another level."),
-        technical: err?.technical || String(err),
+        message: "We couldn't reach the AI service. Check your connection and try again.",
+        technical: String(err?.message || err),
       });
     }
   };
@@ -280,7 +303,7 @@ export default function App() {
       pageStart: concept.page,
       pageEnd: concept.page,
     };
-    handleStartGame(true, false, practiceLevel, 'runner');
+    handleStartGame(true, false, practiceLevel, 'auto');
   };
 
   const handleCancelQuestionLoading = () => {
@@ -297,18 +320,10 @@ export default function App() {
   };
 
   const handleRetryQuestionLoading = () => {
-    handleStartGame(practiceMode, true, currentLevel || undefined, currentGameChoice);
+    handleStartGame(practiceMode, true, currentLevel || undefined, lastForceGame);
   };
 
-  const handleInstantLaunchFallback = () => {
-    if (!currentLevel) return;
-    const fallback = generateFallbackQuestions(currentLevel.concepts);
-    setCurrentQuestions(fallback);
-    setCurrentGameChoice('runner');
-    setCurrentView('game');
-  };
-
-  // Game concludes (either all questions answered or out of lives)
+  // Game concludes (all segments finished or out of lives)
   const handleFinishGame = (result: LevelResult) => {
     const updatedProgress = recordLevelResult(result);
     setProgress(updatedProgress);
@@ -316,21 +331,28 @@ export default function App() {
     setCurrentView('result');
   };
 
-  // Replay the current level with fresh question / statement shuffling
+  // Replay current level: reshuffle cached questions/statements, new platform layouts, zero Gemini calls
   const handlePlayAgain = () => {
-    if (currentGameChoice === 'lieHunter' && currentRounds.length > 0) {
-      const reshuffled = shuffleLieHunterStatements(currentRounds);
-      setCurrentRounds(reshuffled);
-      setCurrentView('game');
-    } else if (currentQuestions.length > 0) {
-      const reshuffled = shuffleQuestionsWithProgression(currentQuestions);
-      setCurrentQuestions(reshuffled);
-      setCurrentView('game');
-    } else if (currentLevel) {
-      handleStartGame(practiceMode, false, currentLevel, currentGameChoice);
-    }
-  };
+    if (!currentLevel || currentSegments.length === 0) return;
 
+    const reshuffledContents: Record<string, any> = {};
+    currentSegments.forEach((seg) => {
+      const orig = segmentContents[seg.id];
+      if (!orig) return;
+
+      if (seg.gameId === 'runner' && Array.isArray(orig)) {
+        reshuffledContents[seg.id] = shuffleQuestionsWithProgression(orig);
+      } else if (seg.gameId === 'lieHunter' && Array.isArray(orig)) {
+        reshuffledContents[seg.id] = shuffleLieHunterStatements(orig);
+      } else {
+        // Platformer creates fresh layout dynamically from rounds
+        reshuffledContents[seg.id] = [...orig];
+      }
+    });
+
+    setSegmentContents(reshuffledContents);
+    setCurrentView('game');
+  };
 
   // Advance to next level if available
   const handleNextLevel = () => {
@@ -344,14 +366,12 @@ export default function App() {
     }
   };
 
-  // Check if another level exists after current
   const hasNextLevel = useMemo(() => {
     if (!currentLevel) return false;
     const currentIndex = allLevels.findIndex((lvl) => lvl.id === currentLevel.id);
     return currentIndex >= 0 && currentIndex < allLevels.length - 1;
   }, [allLevels, currentLevel]);
 
-  // Total levels count in current level's chapter
   const totalLevelsInCurrentChapter = useMemo(() => {
     if (!currentLevel) return 1;
     return allLevels.filter((lvl) => lvl.chapterId === currentLevel.chapterId).length;
@@ -415,7 +435,7 @@ export default function App() {
             </div>
 
             <span className="hidden sm:inline-block text-[11px] font-mono px-2 py-0.5 rounded bg-[#1A213D] text-[#2DD4BF] border border-[#2B355E]">
-              WORLD MAP & MASTERY
+              PHASE 5 · PROCESS PLATFORMER
             </span>
           </div>
         </div>
@@ -475,30 +495,26 @@ export default function App() {
           />
         )}
 
-        {/* VIEW E: Loading Challenge / Case Files */}
+        {/* VIEW E: Loading Challenge */}
         {currentView === 'loading-questions' && (
           <QuestionLoadingView
-            gameType={currentGameChoice}
+            segmentStatuses={segmentStatuses}
             onCancel={handleCancelQuestionLoading}
             error={questionLoadError}
             onRetry={handleRetryQuestionLoading}
             onBackToCourse={() => setCurrentView('course')}
-            onInstantLaunch={handleInstantLaunchFallback}
-            onPlayRunnerInstead={
-              currentGameChoice === 'lieHunter'
-                ? () => handleStartGame(practiceMode, false, currentLevel || undefined, 'runner')
-                : undefined
+            onPlayRunnerInstead={() =>
+              handleStartGame(practiceMode, false, currentLevel || undefined, 'runner')
             }
           />
         )}
 
-        {/* VIEW F: Gameplay (Concept Runner or Lie Hunter) */}
+        {/* VIEW F: Gameplay (Multi-Segment Session) */}
         {currentView === 'game' && currentLevel && (
           <GameView
-            gameType={currentGameChoice}
-            questions={currentQuestions}
-            rounds={currentRounds}
             level={currentLevel}
+            segments={currentSegments}
+            segmentContents={segmentContents}
             practiceMode={practiceMode}
             onFinish={handleFinishGame}
             onQuit={() => {
@@ -510,7 +526,6 @@ export default function App() {
             }}
           />
         )}
-
 
         {/* VIEW G: Result Screen */}
         {currentView === 'result' && levelResult && (
@@ -528,7 +543,7 @@ export default function App() {
 
       {/* Subtle Dungeon Footer */}
       <footer className="border-t border-[#181E38] py-4 px-4 text-center text-xs text-slate-500 font-mono">
-        StudyQuest · Intelligent Course Decomposition & Concept Runner
+        StudyQuest · Intelligent Course Decomposition & Multi-Game Challenge Suite
       </footer>
     </div>
   );

@@ -1,12 +1,14 @@
 import React from 'react';
-import { Concept, Chapter } from '../../types/course.ts';
+import { Concept, Chapter, ConceptProgress } from '../../types/course.ts';
 import { ConceptMasteryRecord } from '../../services/masteryStore.ts';
-import { Crown, AlertCircle, BookOpen, Sparkles, HelpCircle } from 'lucide-react';
+import { stateOf, strength, isDue } from '../../services/masteryModel.ts';
+import { Crown, AlertCircle, BookOpen, Sparkles, HelpCircle, Clock } from 'lucide-react';
 
 interface ConceptNodeProps {
   concept: Concept;
   chapter: Chapter;
   stats: ConceptMasteryRecord;
+  conceptProgress?: ConceptProgress;
   index: number;
   isSelected?: boolean;
   onSelect: (concept: Concept, chapter: Chapter) => void;
@@ -16,12 +18,19 @@ export const ConceptNode: React.FC<ConceptNodeProps> = ({
   concept,
   chapter,
   stats,
+  conceptProgress,
   index,
   isSelected = false,
   onSelect,
 }) => {
-  const isAttempted = stats.isAttempted && stats.totalAttempts > 0;
-  const mastery = stats.mastery;
+  // Use unified masteryModel if conceptProgress is present
+  const hasUnified = Boolean(conceptProgress && conceptProgress.answered > 0);
+  const unifiedState = stateOf(conceptProgress);
+  const unifiedStrength = hasUnified ? Math.round(strength(conceptProgress) * 100) : 0;
+  const isDueForReview = isDue(conceptProgress);
+
+  const isAttempted = hasUnified || (stats.isAttempted && stats.totalAttempts > 0);
+  const mastery = hasUnified ? unifiedStrength : stats.mastery;
 
   // Visual styling variants based on mastery
   let theme = {
@@ -36,7 +45,10 @@ export const ConceptNode: React.FC<ConceptNodeProps> = ({
   };
 
   if (isAttempted) {
-    if (mastery < 40) {
+    const isWeak = hasUnified ? unifiedState === 'weak' : mastery < 40;
+    const isShaky = hasUnified ? unifiedState === 'shaky' : mastery < 75;
+
+    if (isWeak) {
       theme = {
         border: 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)] hover:border-red-400',
         bg: 'bg-gradient-to-b from-red-950/70 to-[#18111D]',
@@ -44,10 +56,10 @@ export const ConceptNode: React.FC<ConceptNodeProps> = ({
         textColor: 'text-red-400',
         badgeBg: 'bg-red-950/90 text-red-300 border-red-800',
         icon: <AlertCircle className="w-4 h-4 text-red-400" aria-hidden="true" />,
-        statusLabel: `Struggling (${mastery}%)`,
+        statusLabel: `Weak (${mastery}%)`,
         ring: 'focus-visible:ring-red-400',
       };
-    } else if (mastery < 75) {
+    } else if (isShaky) {
       theme = {
         border: 'border-amber-400 shadow-[0_0_15px_rgba(245,197,66,0.35)] hover:border-amber-300',
         bg: 'bg-gradient-to-b from-amber-950/60 to-[#18151D]',
@@ -55,7 +67,7 @@ export const ConceptNode: React.FC<ConceptNodeProps> = ({
         textColor: 'text-amber-300',
         badgeBg: 'bg-amber-950/90 text-amber-300 border-amber-800',
         icon: <BookOpen className="w-4 h-4 text-amber-300" aria-hidden="true" />,
-        statusLabel: `Developing (${mastery}%)`,
+        statusLabel: `Shaky (${mastery}%)`,
         ring: 'focus-visible:ring-amber-400',
       };
     } else {
@@ -99,6 +111,16 @@ export const ConceptNode: React.FC<ConceptNodeProps> = ({
         <span className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-[#0E1224] border border-[#2F395E] text-[10px] font-mono font-bold text-slate-300 flex items-center justify-center shadow">
           {index + 1}
         </span>
+
+        {/* Due clock badge in top right corner */}
+        {isDueForReview && (
+          <span
+            className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-amber-500 text-black border border-amber-300 flex items-center justify-center shadow animate-pulse z-30"
+            title="Due for spaced repetition review"
+          >
+            <Clock className="w-3 h-3 text-black stroke-[3]" />
+          </span>
+        )}
 
         {/* State Icon */}
         <div className="flex items-center justify-center">

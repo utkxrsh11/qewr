@@ -28,7 +28,8 @@ export const SAMPLE_COURSE: Course = {
             "Solar radiation strikes exposed water surfaces",
             "Surface molecules absorb thermal energy and break hydrogen bonds",
             "Liquid water undergoes phase change into invisible water vapor",
-            "Warm, low-density vapor rises into the cooler troposphere"
+            "Warm, low-density vapor rises into the cooler troposphere",
+            "Ascending vapor expands and cools toward condensation threshold"
           ]
         },
         {
@@ -64,9 +65,8 @@ export const SAMPLE_COURSE: Course = {
           sourceQuote: "When moist winds encounter mountainous barriers, forced ascent induces adiabatic cooling and orographic rain.",
           steps: [
             "Moist maritime air mass approaches an elevated mountain range",
-            "Topographical obstruction forces the air to ascend rapidly",
-            "Adiabatic expansion cools the air mass to its dew point temperature",
-            "Precipitation falls on the windward slope while dry air creates a leeward rain shadow"
+            "Topographical obstruction forces the air to ascend and adiabatically cool",
+            "Precipitation discharges along the windward slope"
           ]
         },
         {

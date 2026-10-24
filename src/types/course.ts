@@ -65,6 +65,7 @@ export interface Level {
   concepts: Concept[];
   pageStart: number;
   pageEnd: number;
+  isRevision?: boolean;
 }
 
 export type QuestionDifficulty = 'easy' | 'medium' | 'hard';
@@ -97,10 +98,11 @@ export interface QuestionAnswerRecord {
 }
 
 // -----------------------------------------------------------------------------
-// Phase 4 Types: Lie Hunter Game
+// -----------------------------------------------------------------------------
+// Phase 4 & 5 Types: Lie Hunter & Process Platformer Games
 // -----------------------------------------------------------------------------
 
-export type GameChoice = 'runner' | 'lieHunter';
+export type GameChoice = 'runner' | 'lieHunter' | 'platformer';
 
 export interface BaseStatement {
   id: string;
@@ -157,10 +159,64 @@ export interface RoundMistakeSummary {
   hinted: boolean;
 }
 
+// -----------------------------------------------------------------------------
+// Phase 5 Types: Process Platformer & Multi-Segment Sessions
+// -----------------------------------------------------------------------------
+
+export interface PlatformerStep {
+  id: string; // e.g. "ch1-L1-r1-s1"
+  label: string; // max 60 chars
+  explanation: string; // max 200 chars
+}
+
+export interface PlatformerDecoy {
+  id: string;
+  label: string;
+  whyNot: string;
+}
+
+export interface PlatformerRound {
+  id: string; // e.g. "ch1-L1-r1"
+  conceptId: string;
+  kind: 'order' | 'challenge';
+  title: string;
+  instruction: string;
+  steps: PlatformerStep[];
+  decoy: PlatformerDecoy | null;
+  page: number;
+  sourceQuote: string;
+}
+
+export interface PlatformerContentData {
+  levelId: string;
+  conceptHash: string;
+  rounds: PlatformerRound[];
+}
+
+export interface StepAnswer {
+  itemId: string; // step id
+  conceptId: string;
+  gameId: 'platformer';
+  correct: boolean; // true only if first choice was right AND no hint was used for that step
+  hinted: boolean;
+  attempts: number;
+  chosenId: string; // id of first chosen platform / step
+  correctId: string;
+  timeMs: number;
+}
+
+export interface PlatformerRoundSummary {
+  roundId: string;
+  conceptId: string;
+  kind: 'order' | 'challenge';
+  mistakes: number;
+  hintsUsed: number;
+}
+
 export interface UnifiedGameAnswer {
   itemId: string;
   conceptId: string;
-  gameId: 'runner' | 'lieHunter';
+  gameId: 'runner' | 'lieHunter' | 'platformer';
   correct: boolean;
   hinted?: boolean;
   attempts?: number;
@@ -171,23 +227,55 @@ export interface UnifiedGameAnswer {
   timeMs: number;
 }
 
+export interface LevelSegment {
+  id: string;
+  gameId: GameChoice;
+  conceptIds: string[];
+  concepts: Concept[];
+  index: number;
+  totalSegments: number;
+}
+
+export interface SegmentResultInfo {
+  gameId: GameChoice;
+  conceptNames: string[];
+  itemsCorrect: number;
+  itemsTotal: number;
+  status: 'completed' | 'outOfLives' | 'notReached' | 'quit';
+}
+
+export interface StrengthDelta {
+  conceptId: string;
+  conceptName: string;
+  before: number; // 0..1
+  after: number; // 0..1
+  delta: number; // after - before
+  nextDueAt: string;
+}
+
 export interface LevelResult {
   levelId: string;
-  gameId?: 'runner' | 'lieHunter';
+  gameId?: GameChoice;
   practiceMode: boolean;
+  isRevision?: boolean;
   status: 'completed' | 'out_of_lives' | 'outOfLives' | 'quit';
   score: number;
   bestStreak: number;
+  endStreak?: number;
   livesLeft: number;
   totalQuestions?: number;
   correctCount: number;
   accuracyPercent: number;
   stars: number; // 0, 1, 2, 3
   xpEarned: number;
-  answers: Array<QuestionAnswerRecord | LieHunterAnswer | UnifiedGameAnswer>;
+  answers: Array<QuestionAnswerRecord | LieHunterAnswer | StepAnswer | UnifiedGameAnswer>;
   questions?: Question[];
   rounds?: LieHunterRound[];
   roundsSummary?: RoundMistakeSummary[];
+  platformerRounds?: PlatformerRound[];
+  platformerSummary?: PlatformerRoundSummary[];
+  segments?: SegmentResultInfo[];
+  strengthChanges?: StrengthDelta[];
   level: Level;
 }
 
@@ -204,8 +292,13 @@ export interface ConceptProgress {
   correct: number;
   lastResult: 'correct' | 'wrong';
   lastPlayed: string;
-  lastGame?: 'runner' | 'lieHunter';
+  lastGame?: GameChoice;
   gamesPlayed?: string[];
+  // Phase 6 Spaced Repetition additions
+  recent?: number[]; // last 6 results (1 = correct, 0 = wrong), newest last
+  reviewStreak?: number; // consecutive sessions >= 80% accuracy
+  dueAt?: string; // ISO date string
+  revisions?: number; // times appeared in Smart Revision
 }
 
 export interface StudyQuestProgress {
@@ -213,4 +306,69 @@ export interface StudyQuestProgress {
   levels: Record<string, LevelProgress>;
   concepts: Record<string, ConceptProgress>;
 }
+
+// -----------------------------------------------------------------------------
+// Phase 6 Spaced Repetition & Dashboard Types
+// -----------------------------------------------------------------------------
+
+export type MasteryState = 'untouched' | 'mastered' | 'shaky' | 'weak';
+
+export interface ReadinessBand {
+  label: 'Not ready' | 'In progress' | 'Looking good' | 'Exam ready!';
+  color: 'red' | 'amber' | 'blue' | 'emerald';
+  description: string;
+}
+
+export interface ConceptReviewCandidate {
+  concept: Concept;
+  chapter: Chapter;
+  progress?: ConceptProgress;
+  baseMastery: number;
+  strength: number;
+  state: MasteryState;
+  isDue: boolean;
+  overdueDays: number;
+  priority: number;
+  reason: string;
+  suggestedGame: GameChoice;
+}
+
+export interface RevisionPlan {
+  id: string; // e.g. "rev-1730000000"
+  createdAt: string;
+  candidates: ConceptReviewCandidate[];
+  virtualLevel: Level;
+  expectedSegments: number;
+}
+
+export interface GameStatRecord {
+  played: number;
+  correct: number;
+  totalItems: number;
+}
+
+export interface StudyQuestStats {
+  byGame: Record<GameChoice, GameStatRecord>;
+  byType: Record<ConceptType, GameStatRecord>;
+  lastUpdated: string;
+}
+
+export interface ActivityDayRecord {
+  date: string; // YYYY-MM-DD
+  itemsAnswered: number;
+  correctCount: number;
+  xpEarned: number;
+  sessionsCount: number;
+}
+
+export interface StudyQuestActivity {
+  history: Record<string, ActivityDayRecord>; // key: YYYY-MM-DD
+}
+
+export interface ExamInfo {
+  examDate?: string; // YYYY-MM-DD
+  targetReadiness?: number; // e.g. 85 (%)
+}
+
+
 

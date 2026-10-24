@@ -22,12 +22,15 @@ import {
 export interface ConceptRunnerGameProps {
   questions: Question[];
   level: Level;
+  lives?: number;
+  initialStreak?: number;
   practiceMode?: boolean;
   muted?: boolean;
   reduceMotion?: boolean;
   onFinish: (result: LevelResult) => void;
   onQuit: () => void;
   onSwitchToQuizMode?: () => void;
+  onLivesChange?: (lives: number) => void;
 }
 
 // 16:9 Canvas virtual dimensions
@@ -38,21 +41,24 @@ const LANE_Y = [110, 225, 340]; // Top (A), Middle (B), Bottom (C)
 export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
   questions,
   level,
+  lives: initialLives = 3,
+  initialStreak = 0,
   practiceMode = false,
   muted: initialMuted = isAudioMuted(),
   reduceMotion: initialReduceMotion = false,
   onFinish,
   onQuit,
   onSwitchToQuizMode,
+  onLivesChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Game state
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [livesLeft, setLivesLeft] = useState(3);
+  const [livesLeft, setLivesLeft] = useState(initialLives);
   const [score, setScore] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [bestStreak, setBestStreak] = useState(0);
+  const [streak, setStreak] = useState(initialStreak);
+  const [bestStreak, setBestStreak] = useState(initialStreak);
   const [playerLane, setPlayerLane] = useState(1); // 0 = Top (A), 1 = Middle (B), 2 = Bottom (C)
   const [isPaused, setIsPaused] = useState(false);
   const [muted, setMuted] = useState(initialMuted);
@@ -80,8 +86,8 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
   const gatesProgressRef = useRef<number>(0); // 0 (far right) to 1 (at player X)
   const playerVisualYRef = useRef<number>(LANE_Y[1]);
   const isResolvingRef = useRef<boolean>(false);
-  const streakRef = useRef<number>(0);
-  const livesRef = useRef<number>(3);
+  const streakRef = useRef<number>(initialStreak);
+  const livesRef = useRef<number>(initialLives);
   const scoreRef = useRef<number>(0);
 
   streakRef.current = streak;
@@ -236,6 +242,7 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
         if (!practiceMode) {
           nextLives = Math.max(0, livesRef.current - 1);
           setLivesLeft(nextLives);
+          onLivesChange?.(nextLives);
         }
 
         const newRecord: QuestionAnswerRecord = {
@@ -328,6 +335,7 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
       status,
       score: finalScore,
       bestStreak: finalBestStreak,
+      endStreak: streakRef.current,
       livesLeft: finalLives,
       totalQuestions: questions.length,
       correctCount,

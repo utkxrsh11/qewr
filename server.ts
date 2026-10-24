@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { extractCourse } from './server/courseExtractor.ts';
 import { generateLevelQuestions } from './server/questionGenerator.ts';
 import { generateLieHunterRounds } from './server/lieHunterGenerator.ts';
+import { generatePlatformerRounds } from './server/platformerGenerator.ts';
 
 dotenv.config();
 
@@ -314,6 +315,96 @@ async function startServer() {
       } else if (errorMsg.includes('INVALID') || errorMsg.includes('REJECTED')) {
         errorCode = 'LIEHUNTER_CONTENT_INVALID';
         userMessage = "We couldn't build a good case file for this level.";
+      }
+
+      res.status(statusCode).json({
+        code: errorCode,
+        message: userMessage,
+        technical: errorMsg,
+      });
+    }
+  });
+
+  // POST endpoint for Process Platformer round generation
+  app.post('/api/platformer/generate', async (req: Request, res: Response) => {
+    const { levelId, courseTitle, concepts } = req.body || {};
+
+    if (!levelId || !Array.isArray(concepts) || concepts.length === 0) {
+      res.status(400).json({ error: 'Please provide levelId and an array of concepts.' });
+      return;
+    }
+
+    const abortController = new AbortController();
+    let isFinished = false;
+
+    res.on('close', () => {
+      if (!res.writableEnded && !isFinished) {
+        console.log('Client cancelled Platformer generation connection.');
+        abortController.abort();
+      }
+    });
+
+    // 90 second timeout limit
+    const timeoutId = setTimeout(() => {
+      if (!isFinished) {
+        isFinished = true;
+        abortController.abort();
+        res.status(504).json({
+          code: 'TIMEOUT',
+          message: 'This is taking too long. Try again.',
+          technical: 'Platformer generation timed out after 90 seconds.',
+        });
+      }
+    }, 90_000);
+
+    try {
+      const rounds = await generatePlatformerRounds({
+        levelId,
+        courseTitle: courseTitle || 'Study Course',
+        concepts,
+        signal: abortController.signal,
+      });
+
+      if (!isFinished) {
+        isFinished = true;
+        clearTimeout(timeoutId);
+        res.json({
+          levelId,
+          rounds,
+        });
+      }
+    } catch (err: any) {
+      if (isFinished) return;
+      isFinished = true;
+      clearTimeout(timeoutId);
+
+      console.error('Platformer generation error technical detail:', err);
+
+      let userMessage = "We couldn't reach the AI service. Check your connection and try again.";
+      let statusCode = 500;
+      let errorCode = 'PLATFORMER_GENERATION_FAILED';
+
+      const errorMsg = String(err?.message || '');
+      const errorStatus = err?.status || err?.statusCode || (err?.response && err?.response.status);
+
+      if (errorMsg === 'ABORTED' || abortController.signal.aborted) {
+        return; // Client cancelled
+      } else if (
+        errorStatus === 429 ||
+        errorMsg.includes('429') ||
+        errorMsg.toLowerCase().includes('quota') ||
+        errorMsg.toLowerCase().includes('rate limit')
+      ) {
+        errorCode = 'RATE_LIMIT';
+        statusCode = 429;
+        userMessage = 'The AI service is busy right now. Please wait a minute and try again.';
+      } else if (
+        errorMsg.toLowerCase().includes('fetch failed') ||
+        errorMsg.toLowerCase().includes('enotfound') ||
+        errorMsg.toLowerCase().includes('network')
+      ) {
+        errorCode = 'NETWORK';
+        userMessage = "We couldn't reach the AI service. Check your connection and try again.";
       }
 
       res.status(statusCode).json({

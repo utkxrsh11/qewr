@@ -1,5 +1,6 @@
 import React from 'react';
-import { Level, StudyQuestProgress } from '../types/course.ts';
+import { Level, StudyQuestProgress, GameChoice } from '../types/course.ts';
+import { selectGame, GAME_REGISTRY } from '../services/gameRegistry.ts';
 import { Star, Swords } from 'lucide-react';
 
 interface LevelStripProps {
@@ -30,6 +31,11 @@ export const LevelStrip: React.FC<LevelStripProps> = ({
           const bestStars = levelProgress?.bestStars ?? -1;
           const isPlayed = bestStars >= 0;
 
+          // Unique games contained in this level
+          const gameIds = Array.from(
+            new Set((level.concepts || []).map((c) => selectGame(c)))
+          ) as GameChoice[];
+
           return (
             <button
               key={level.id}
@@ -47,6 +53,22 @@ export const LevelStrip: React.FC<LevelStripProps> = ({
                 <span className="text-[10px] text-slate-400 font-mono">
                   {level.concepts.length}c
                 </span>
+              </div>
+
+              {/* Tiny Game Icons for games in this level */}
+              <div className="flex items-center gap-1 my-0.5">
+                {gameIds.map((gId) => {
+                  const Icon = GAME_REGISTRY[gId].icon;
+                  return (
+                    <span
+                      key={gId}
+                      className="w-4 h-4 rounded bg-[#101426] border border-[#252E4E] flex items-center justify-center text-teal-400"
+                      title={GAME_REGISTRY[gId].name}
+                    >
+                      <Icon className="w-2.5 h-2.5" />
+                    </span>
+                  );
+                })}
               </div>
 
               {/* Star Rating Display */}

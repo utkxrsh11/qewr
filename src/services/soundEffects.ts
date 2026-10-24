@@ -45,7 +45,11 @@ export type SoundType =
   | 'thud'
   | 'caught'
   | 'hint'
-  | 'magnify';
+  | 'magnify'
+  | 'jump'
+  | 'land'
+  | 'crumble'
+  | 'roundComplete';
 
 export function playSound(type: SoundType): void {
   if (isAudioMuted()) return;
@@ -140,6 +144,61 @@ export function playSound(type: SoundType): void {
         gain.connect(ctx.destination);
         osc.start(start);
         osc.stop(start + dur);
+      });
+    } else if (type === 'jump') {
+      // 8-bit springy upward sweep
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(160, now);
+      osc.frequency.exponentialRampToValueAtTime(420, now + 0.12);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.13);
+    } else if (type === 'land') {
+      // Soft short low thud
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(110, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.06);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.07);
+    } else if (type === 'crumble') {
+      // Low-frequency crumbling stone rattle
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(90, now);
+      osc.frequency.linearRampToValueAtTime(30, now + 0.28);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.29);
+    } else if (type === 'roundComplete') {
+      // Triumphant sequence complete chime
+      const arpeggio = [440, 554.37, 659.25, 880];
+      arpeggio.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        const start = now + i * 0.09;
+        osc.frequency.setValueAtTime(freq, start);
+        gain.gain.setValueAtTime(0.12, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.22);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.23);
       });
     }
   } catch (err) {

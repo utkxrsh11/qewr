@@ -3,7 +3,9 @@ import { Course, ConceptType, Level, StudyQuestProgress } from '../types/course.
 import { ChapterSection } from './ChapterSection.tsx';
 import { FilterBar } from './FilterBar.tsx';
 import { buildLevels } from '../services/levelBuilder.ts';
-import { Download, RotateCcw, BookMarked, Layers, Swords, SearchX, Play, Sparkles, Compass } from 'lucide-react';
+import { isDue } from '../services/masteryModel.ts';
+import { DueBanner } from './Revision/DueBanner.tsx';
+import { Download, RotateCcw, BookMarked, Layers, Swords, SearchX, Play, Sparkles, Compass, BarChart2 } from 'lucide-react';
 
 interface CourseOverviewViewProps {
   course: Course;
@@ -12,6 +14,8 @@ interface CourseOverviewViewProps {
   onSelectLevel?: (level: Level) => void;
   onStartLearning?: () => void;
   onOpenWorldMap?: () => void;
+  onOpenDashboard?: () => void;
+  onStartRevision?: () => void;
 }
 
 export const CourseOverviewView: React.FC<CourseOverviewViewProps> = ({
@@ -21,6 +25,8 @@ export const CourseOverviewView: React.FC<CourseOverviewViewProps> = ({
   onSelectLevel,
   onStartLearning,
   onOpenWorldMap,
+  onOpenDashboard,
+  onStartRevision,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<ConceptType | 'all'>('all');
@@ -65,6 +71,13 @@ export const CourseOverviewView: React.FC<CourseOverviewViewProps> = ({
       detail,
     };
   }, [course, totalConceptsCount]);
+
+  // Compute concepts due for spaced repetition review
+  const dueCount = useMemo(() => {
+    return course.chapters
+      .flatMap((ch) => ch.concepts || [])
+      .filter((c) => isDue(progress.concepts[c.id])).length;
+  }, [course, progress]);
 
   // Filter concepts per chapter based on search and selected type
   const filteredChapters = useMemo(() => {
@@ -175,6 +188,18 @@ export const CourseOverviewView: React.FC<CourseOverviewViewProps> = ({
               <span>Start learning</span>
             </button>
 
+            {onOpenDashboard && (
+              <button
+                type="button"
+                onClick={onOpenDashboard}
+                className="btn-pixel-gold px-4 py-2.5 rounded-lg text-xs font-bold flex items-center gap-2 cursor-pointer shadow-md"
+                aria-label="Open Exam Dashboard"
+              >
+                <BarChart2 className="w-4 h-4 text-black" aria-hidden="true" />
+                <span>Dashboard</span>
+              </button>
+            )}
+
             {onOpenWorldMap && (
               <button
                 type="button"
@@ -209,6 +234,12 @@ export const CourseOverviewView: React.FC<CourseOverviewViewProps> = ({
           </div>
         </div>
       </header>
+
+      {/* Due for Review Banner */}
+      <DueBanner
+        dueCount={dueCount}
+        onStartRevision={onStartRevision || onOpenDashboard || (() => {})}
+      />
 
       {/* 4. Filter Bar */}
       <FilterBar
