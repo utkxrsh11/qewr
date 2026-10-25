@@ -1,4 +1,4 @@
-import { Type } from '@google/genai';
+import { Type, ThinkingLevel } from '@google/genai';
 import { ai } from './gemini.ts';
 import { Concept, LieHunterRound, Statement, FalseStatement, TrueStatement } from '../src/types/course.ts';
 
@@ -492,6 +492,7 @@ Each round must contain exactly 4 statements: 3 true and 1 false.`;
         responseMimeType: 'application/json',
         responseSchema: LIE_HUNTER_SCHEMA,
         temperature: 0.2,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     });
 
@@ -538,6 +539,7 @@ Each round must contain exactly 4 statements: 3 true and 1 false.`;
         responseMimeType: 'application/json',
         responseSchema: LIE_HUNTER_SCHEMA,
         temperature: 0.1,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     });
 

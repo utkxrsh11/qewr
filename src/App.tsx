@@ -555,7 +555,7 @@ function StudyQuestApp() {
   }, [allLevels, currentLevel]);
 
   return (
-    <div className="min-h-screen retro-grid-bg flex flex-col justify-between selection:bg-[#F5C542] selection:text-black">
+    <div className="min-h-screen retro-grid-bg flex flex-col justify-between selection:bg-[#FF1376] selection:text-white">
       {/* Skip to Main Content for Accessibility */}
       <a href="#main-content" className="skip-link font-pixel text-xs">
         Skip to main content
@@ -567,7 +567,7 @@ function StudyQuestApp() {
       </div>
 
       {/* Top Banner Bar */}
-      <header className="border-b border-[#1E2542] bg-[#0E1224]/90 backdrop-blur-xs sticky top-0 z-40 px-4 py-3">
+      <header className="border-b border-[#202636] bg-[#0A0D15]/95 backdrop-blur-xs sticky top-0 z-40 px-4 py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3 sm:gap-6">
             <button
@@ -576,12 +576,12 @@ function StudyQuestApp() {
                 if (course) setCurrentView('course');
                 else setCurrentView('upload');
               }}
-              className="flex items-center gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5C542] rounded px-1 cursor-pointer"
+              className="flex items-center gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0284C7] rounded px-1 cursor-pointer"
               aria-label="StudyQuest Home"
             >
-              <div className="w-2.5 h-2.5 bg-[#F5C542] rotate-45" />
-              <span className="font-pixel text-xs sm:text-sm text-[#F5C542] tracking-wider">
-                StudyQuest
+              <div className="w-2.5 h-2.5 bg-[#FF1376] rotate-45 shadow-[0_0_8px_rgba(255,19,118,0.8)]" />
+              <span className="font-pixel text-xs sm:text-sm text-white tracking-wider">
+                Study<span className="text-[#38BDF8]">Quest</span>
               </span>
             </button>
 
@@ -596,8 +596,8 @@ function StudyQuestApp() {
                   }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
                     currentView === 'course'
-                      ? 'bg-[#1D2545] text-[#F5C542] border border-[#F5C542]/40 shadow-xs'
-                      : 'text-slate-400 hover:text-white hover:bg-[#141A33]'
+                      ? 'bg-[#161F30] text-[#38BDF8] border border-[#0284C7]/60 shadow-xs'
+                      : 'text-slate-400 hover:text-white hover:bg-[#121622]'
                   }`}
                 >
                   Overview
@@ -610,11 +610,11 @@ function StudyQuestApp() {
                   }}
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
                     currentView === 'world-map'
-                      ? 'bg-[#1D2545] text-[#2DD4BF] border border-[#2DD4BF]/40 shadow-xs'
-                      : 'text-slate-400 hover:text-white hover:bg-[#141A33]'
+                      ? 'bg-[#161F30] text-[#38BDF8] border border-[#0284C7]/60 shadow-xs'
+                      : 'text-slate-400 hover:text-white hover:bg-[#121622]'
                   }`}
                 >
-                  <Compass className="w-3.5 h-3.5 text-[#2DD4BF]" aria-hidden="true" />
+                  <Compass className="w-3.5 h-3.5 text-[#38BDF8]" aria-hidden="true" />
                   <span>Map</span>
                 </button>
                 <button
@@ -625,15 +625,15 @@ function StudyQuestApp() {
                   }}
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
                     currentView === 'dashboard'
-                      ? 'bg-[#1D2545] text-[#F5C542] border border-[#F5C542]/40 shadow-xs'
-                      : 'text-slate-400 hover:text-white hover:bg-[#141A33]'
+                      ? 'bg-[#161F30] text-[#FF4D9E] border border-[#FF1376]/60 shadow-xs'
+                      : 'text-slate-400 hover:text-white hover:bg-[#121622]'
                   }`}
                 >
-                  <BarChart2 className="w-3.5 h-3.5 text-[#F5C542]" aria-hidden="true" />
+                  <BarChart2 className="w-3.5 h-3.5 text-[#FF4D9E]" aria-hidden="true" />
                   <span>Dashboard</span>
                   {dueCount > 0 && (
                     <span
-                      className="ml-0.5 px-1.5 py-0.2 bg-[#EF4444] text-white text-[10px] font-bold rounded-full"
+                      className="ml-0.5 px-1.5 py-0.2 bg-[#FF1376] text-white text-[10px] font-bold rounded-full shadow-[0_0_8px_rgba(255,19,118,0.6)]"
                       title={`${dueCount} concepts due for review`}
                     >
                       {dueCount}
@@ -651,10 +651,10 @@ function StudyQuestApp() {
               onClick={() => {
                 if (course) setCurrentView('dashboard');
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#141A33] border border-[#2B355E] text-xs font-mono text-[#F5C542] shadow-inner hover:border-[#F5C542]/60 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#11141F] border border-[#202738] text-xs font-mono text-[#38BDF8] shadow-inner hover:border-[#0284C7] transition-colors cursor-pointer"
               title={course ? 'View Retention & Readiness Dashboard' : 'XP Earned'}
             >
-              <Coins className="w-3.5 h-3.5 text-[#F5C542]" aria-hidden="true" />
+              <Coins className="w-3.5 h-3.5 text-[#FF1376]" aria-hidden="true" />
               <span className="font-bold">XP: {progress.totalXp}</span>
             </button>
 

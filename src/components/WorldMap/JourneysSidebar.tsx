@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Chapter, Concept } from '../../types/course.ts';
 import { RealmConfig } from './JourneysNode.tsx';
 import { ConceptMasteryRecord, getConceptStats } from '../../services/masteryStore.ts';
-import { X, Trophy, Swords, Sparkles, ChevronRight, Play } from 'lucide-react';
+import { X, Trophy, Swords, Sparkles, ChevronRight, Play, Home, ArrowRight } from 'lucide-react';
 
 interface JourneysSidebarProps {
   realm: RealmConfig;
@@ -298,34 +298,53 @@ export const JourneysSidebar: React.FC<JourneysSidebarProps> = ({
         </div>
       </div>
 
-      {/* 7. Bottom Action Buttons: Go to journey & Return home */}
-      <div className="p-4 pt-2 border-t border-[#1C253B] bg-[#080B13] flex items-center gap-3">
-        {/* Go to journey (Primary Blue Beveled Button) */}
-        <button
-          type="button"
-          onClick={onGoToJourney}
-          className="flex-1 relative group focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded cursor-pointer transition-transform active:scale-98"
-          aria-label={`Go to journey for ${realm.name}`}
-        >
-          <img
-            src="/assets/journeys/btn_go_journey.png"
-            alt="Go to journey"
-            className="w-full h-auto object-contain drop-shadow-[0_2px_8px_rgba(56,189,248,0.3)] group-hover:brightness-110 transition-all"
-          />
-        </button>
-
-        {/* Return home (Dark Slate Beveled Button) */}
+      {/* 7. Bottom Action Buttons: Go to journey & Return home (Structured UI Buttons) */}
+      <div className="p-4 pt-3 border-t border-[#202738] bg-[#0A0D15] flex flex-col sm:flex-row items-stretch gap-2.5">
+        {/* Return home button */}
         <button
           type="button"
           onClick={onReturnHome}
-          className="flex-1 relative group focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 rounded cursor-pointer transition-transform active:scale-98"
+          className="flex-1 py-3 px-3.5 rounded-lg bg-[#11141F] hover:bg-[#181D2C] border-2 border-[#222B3D] hover:border-[#0284C7] border-b-4 border-r-4 border-b-[#07090F] border-r-[#07090F] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0284C7] cursor-pointer transition-all active:translate-x-0.5 active:translate-y-0.5 active:border-b-2 active:border-r-2 group text-left"
           aria-label="Return home to course overview"
         >
-          <img
-            src="/assets/journeys/btn_return_home.png"
-            alt="Return home"
-            className="w-full h-auto object-contain group-hover:brightness-110 transition-all"
-          />
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded bg-[#161B29] border border-[#2B354D] flex items-center justify-center flex-shrink-0 group-hover:border-[#0284C7] group-hover:text-[#38BDF8] text-slate-300 transition-colors">
+              <Home className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="font-pixel text-[10px] text-slate-200 group-hover:text-white tracking-wider truncate">
+                RETURN HOME
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono truncate">
+                Course Overview
+              </div>
+            </div>
+          </div>
+        </button>
+
+        {/* Go to journey button */}
+        <button
+          type="button"
+          onClick={onGoToJourney}
+          className="flex-1 py-3 px-3.5 rounded-lg bg-gradient-to-r from-[#0284C7] to-[#0369A1] hover:from-[#0EA5E9] hover:to-[#0284C7] border-2 border-[#38BDF8] border-b-4 border-r-4 border-b-[#075985] border-r-[#075985] shadow-[0_4px_16px_rgba(2,132,199,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38BDF8] cursor-pointer transition-all active:translate-x-0.5 active:translate-y-0.5 active:border-b-2 active:border-r-2 group text-left"
+          aria-label={`Go to journey for ${realm.name}`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded bg-[#075985]/80 border border-[#38BDF8]/60 flex items-center justify-center flex-shrink-0 text-white shadow-xs">
+                <Swords className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-pixel text-[10px] sm:text-[11px] text-white tracking-wider truncate flex items-center gap-1.5">
+                  <span>GO TO JOURNEY</span>
+                </div>
+                <div className="text-[10px] text-sky-100 font-mono truncate">
+                  Start Realm Quest
+                </div>
+              </div>
+            </div>
+            <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-0.5 transition-transform flex-shrink-0" />
+          </div>
         </button>
       </div>
     </aside>

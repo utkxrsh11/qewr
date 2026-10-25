@@ -1,4 +1,4 @@
-import { Type } from '@google/genai';
+import { Type, ThinkingLevel } from '@google/genai';
 import { ai } from './gemini.ts';
 import { Concept, PlatformerRound, PlatformerStep, PlatformerDecoy } from '../src/types/course.ts';
 
@@ -369,12 +369,13 @@ ${promptConceptsText}`;
   try {
     // Attempt 1: Gemini call
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: basePrompt,
       config: {
         responseMimeType: 'application/json',
         responseSchema: PLATFORMER_SCHEMA,
         temperature: 0.2,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     });
 
@@ -405,12 +406,13 @@ ${validation.issues.slice(0, 5).join('\n')}
 Please regenerate strictly fixing each issue. Maintain exact step order and <=60 chars per label.`;
 
       const retryResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.8-flash',
         contents: retryPrompt,
         config: {
           responseMimeType: 'application/json',
           responseSchema: PLATFORMER_SCHEMA,
           temperature: 0.1,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         },
       });
 

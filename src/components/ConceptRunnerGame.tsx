@@ -17,6 +17,7 @@ import {
   Sliders,
   CheckCircle2,
   XCircle,
+  Clock,
 } from 'lucide-react';
 
 export interface ConceptRunnerGameProps {
@@ -97,10 +98,24 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
   const currentQ = questions[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
 
-  // Reaction time: starts at 6.5s, decreases by 0.3s every 2 correct answers down to 4.2s
-  const correctCountSoFar = answers.filter((a) => a.correct).length;
-  const speedTier = Math.floor(correctCountSoFar / 2);
-  const gateDurationMs = Math.max(4200, 6500 - speedTier * 300);
+  // 60-second answer timer & Question-First Ready flow
+  const TOTAL_QUESTION_TIME_MS = 60000;
+  const gateDurationMs = TOTAL_QUESTION_TIME_MS;
+
+  const [isReady, setIsReady] = useState(false);
+  const [timeRemainingSeconds, setTimeRemainingSeconds] = useState(60);
+  const isReadyRef = useRef<boolean>(false);
+  isReadyRef.current = isReady;
+
+  const resolveAnswerRef = useRef<(lane: number) => void>(() => {});
+
+  const handleReady = useCallback(() => {
+    playSound('select');
+    setIsReady(true);
+    isReadyRef.current = true;
+    questionStartTimeRef.current = Date.now();
+    setTimeRemainingSeconds(60);
+  }, []);
 
   // Sync mute state
   const toggleMute = () => {
@@ -112,6 +127,15 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // If question is presented but not yet ready, Space or Enter triggers Ready
+      if (!isReady) {
+        if (e.code === 'Space' || e.key === 'Enter') {
+          e.preventDefault();
+          handleReady();
+        }
+        return;
+      }
+
       // Pause toggle
       if (e.code === 'Space' || e.key.toLowerCase() === 'p') {
         if (!feedbackState.showExplanation) {
@@ -136,16 +160,19 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
         setPlayerLane((prev) => Math.min(2, prev + 1));
       } else if (e.key === '1') {
         setPlayerLane(0);
+        resolveAnswerRef.current?.(0);
       } else if (e.key === '2') {
         setPlayerLane(1);
+        resolveAnswerRef.current?.(1);
       } else if (e.key === '3') {
         setPlayerLane(2);
+        resolveAnswerRef.current?.(2);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPaused, feedbackState.showExplanation]);
+  }, [isReady, isPaused, feedbackState.showExplanation, handleReady]);
 
   // Tab visibility change: auto-pause on blur
   useEffect(() => {
@@ -158,10 +185,13 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [feedbackState.showExplanation]);
 
-  // Reset gate position when question changes
+  // Reset gate position and readiness when question changes
   useEffect(() => {
     gatesProgressRef.current = 0;
     isResolvingRef.current = false;
+    isReadyRef.current = false;
+    setIsReady(false);
+    setTimeRemainingSeconds(60);
     questionStartTimeRef.current = Date.now();
     setFeedbackState({
       type: null,
@@ -365,10 +395,15 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
       const delta = Math.min(100, now - lastTimeRef.current);
       lastTimeRef.current = now;
 
-      if (!isPaused && !feedbackState.showExplanation) {
-        // Update gates progress
+      if (!isPaused && !feedbackState.showExplanation && isReadyRef.current) {
+        // Update gates progress over 60 seconds
         if (!isResolvingRef.current) {
-          gatesProgressRef.current += delta / gateDurationMs;
+          gatesProgressRef.current += delta / TOTAL_QUESTION_TIME_MS;
+          const remaining = Math.max(
+            0,
+            Math.ceil(TOTAL_QUESTION_TIME_MS * (1 - gatesProgressRef.current) / 1000)
+          );
+          setTimeRemainingSeconds(remaining);
           if (gatesProgressRef.current >= 1) {
             gatesProgressRef.current = 1;
             resolveAnswer(playerLane);
@@ -394,45 +429,41 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
         playerVisualYRef.current += (targetY - playerVisualYRef.current) * 0.22;
       }
 
-      // --- DRAW BACKGROUND ---
-      // Distant dark stone dungeon wall
-      ctx.fillStyle = '#080A14';
+      // --- DRAW BACKGROUND (Plain Jet Black - no checks / no grid) ---
+      ctx.fillStyle = '#08090C'; // Plain Jet Black
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-      // Layer 1: Distant Wall Bricks & Arch lines
-      ctx.strokeStyle = '#141A30';
-      ctx.lineWidth = 1;
-      const brickSize = 40;
-      for (let x = -bgScrollFar; x < CANVAS_WIDTH; x += brickSize) {
-        for (let y = 0; y < CANVAS_HEIGHT - 60; y += 24) {
-          ctx.strokeRect(x, y, brickSize, 24);
-        }
-      }
+      // Subtle atmospheric Cerulean haze on upper dungeon wall
+      const hazeGradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT - 50);
+      hazeGradient.addColorStop(0, 'rgba(2, 132, 199, 0.08)');
+      hazeGradient.addColorStop(1, 'rgba(8, 9, 12, 0)');
+      ctx.fillStyle = hazeGradient;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT - 50);
 
-      // Wall Torches
-      const torchSpacing = 200;
+      // Wall Torches with Cerulean and Neon Rose flame
+      const torchSpacing = 220;
       for (let tx = 80 - bgScrollMid; tx < CANVAS_WIDTH + 100; tx += torchSpacing) {
         if (tx > -40 && tx < CANVAS_WIDTH + 40) {
           // Torch bracket
-          ctx.fillStyle = '#374151';
-          ctx.fillRect(tx, 45, 8, 16);
+          ctx.fillStyle = '#202636';
+          ctx.fillRect(tx, 45, 6, 16);
           // Flame glow
-          const flameFlicker = Math.sin(now * 0.02 + tx) * 3;
-          ctx.fillStyle = '#F59E0B';
+          const flameFlicker = Math.sin(now * 0.02 + tx) * 2.5;
+          ctx.fillStyle = '#FF1376'; // Neon Rose flame
           ctx.beginPath();
-          ctx.arc(tx + 4, 40 + flameFlicker, 7, 0, Math.PI * 2);
+          ctx.arc(tx + 3, 40 + flameFlicker, 6.5, 0, Math.PI * 2);
           ctx.fill();
-          ctx.fillStyle = '#FDE047';
+          ctx.fillStyle = '#38BDF8'; // Cerulean inner spark
           ctx.beginPath();
-          ctx.arc(tx + 4, 40 + flameFlicker, 3.5, 0, Math.PI * 2);
+          ctx.arc(tx + 3, 40 + flameFlicker, 3, 0, Math.PI * 2);
           ctx.fill();
         }
       }
 
-      // Lane Guide Lines
+      // Lane Guide Lines (Cerulean Blue passive, Neon Rose active lane)
       LANE_Y.forEach((y, laneIdx) => {
         const isCurrent = playerLane === laneIdx;
-        ctx.strokeStyle = isCurrent ? 'rgba(245, 197, 66, 0.35)' : 'rgba(45, 212, 191, 0.12)';
+        ctx.strokeStyle = isCurrent ? 'rgba(255, 19, 118, 0.5)' : 'rgba(2, 132, 199, 0.2)';
         ctx.lineWidth = isCurrent ? 2 : 1;
         ctx.setLineDash([8, 8]);
         ctx.beginPath();
@@ -442,19 +473,16 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
         ctx.setLineDash([]);
       });
 
-      // Bottom Stone Floor with Tiling
-      ctx.fillStyle = '#0E1222';
+      // Bottom Stone Floor (Plain, no checks / grid lines)
+      ctx.fillStyle = '#10131A';
       ctx.fillRect(0, CANVAS_HEIGHT - 50, CANVAS_WIDTH, 50);
-      ctx.fillStyle = '#1B223D';
-      ctx.fillRect(0, CANVAS_HEIGHT - 50, CANVAS_WIDTH, 3);
-      for (let fx = -bgScrollFloor; fx < CANVAS_WIDTH; fx += 30) {
-        ctx.strokeStyle = '#1F2848';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(fx, CANVAS_HEIGHT - 48, 30, 48);
-      }
+      ctx.fillStyle = '#202636';
+      ctx.fillRect(0, CANVAS_HEIGHT - 50, CANVAS_WIDTH, 2);
+      ctx.fillStyle = '#0284C7';
+      ctx.fillRect(0, CANVAS_HEIGHT - 48, CANVAS_WIDTH, 1);
 
       // --- DRAW 3 APPROACHING ANSWER GATES ---
-      // Player is at X = 130. Gates start at X = 780 and move toward X = 130.
+      // Player is at X = 130. Gates start at X = 780 and move toward X = 130 over 60 seconds.
       const gateStartX = CANVAS_WIDTH - 40;
       const gateTargetX = 130;
       const currentGateX = gateStartX - (gateStartX - gateTargetX) * gatesProgressRef.current;
@@ -472,23 +500,23 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
           const gateTop = gateY - gateH / 2;
 
           // Feedback Highlight on Resolution
-          let frameColor = '#283357';
-          let signBg = '#14182E';
-          let glowColor = 'rgba(45, 212, 191, 0.2)';
+          let frameColor = '#202636';
+          let signBg = '#0E1117';
+          let glowColor = 'rgba(2, 132, 199, 0.15)';
 
           if (isResolvingRef.current) {
             if (optIdx === currentQ.correctIndex) {
-              frameColor = '#22C55E';
+              frameColor = '#10B981';
               signBg = '#064E3B';
-              glowColor = 'rgba(34, 197, 94, 0.5)';
+              glowColor = 'rgba(16, 185, 129, 0.5)';
             } else if (optIdx === feedbackState.chosenLane) {
-              frameColor = '#EF4444';
+              frameColor = '#FF1376';
               signBg = '#7F1D1D';
-              glowColor = 'rgba(239, 68, 68, 0.5)';
+              glowColor = 'rgba(255, 19, 118, 0.5)';
             }
           } else if (isTargetedByPlayer) {
-            frameColor = '#F5C542';
-            glowColor = 'rgba(245, 197, 66, 0.4)';
+            frameColor = '#FF1376';
+            glowColor = 'rgba(255, 19, 118, 0.4)';
           }
 
           // Gate Glow
@@ -504,21 +532,23 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
           ctx.fillRect(gateLeft + 6, gateTop + 8, gateW - 12, gateH - 14);
 
           // Shield Letter Badge (A, B, C)
-          ctx.fillStyle = isTargetedByPlayer ? '#F5C542' : '#3B82F6';
+          ctx.fillStyle = isTargetedByPlayer ? '#FF1376' : '#0284C7';
           ctx.beginPath();
           ctx.arc(currentGateX, gateTop + 18, 11, 0, Math.PI * 2);
           ctx.fill();
-          ctx.fillStyle = '#0F121E';
+          ctx.fillStyle = '#FFFFFF';
           ctx.font = 'bold 12px monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(letter, currentGateX, gateTop + 18);
 
-          // Short preview text on gate
-          ctx.fillStyle = '#E2E8F0';
-          ctx.font = 'bold 9px sans-serif';
-          const shortPreview = optText.length > 12 ? optText.slice(0, 10) + '...' : optText;
-          ctx.fillText(shortPreview, currentGateX, gateTop + 45);
+          // Short preview text on gate (only visible when ready)
+          if (isReadyRef.current) {
+            ctx.fillStyle = '#F1F5F9';
+            ctx.font = 'bold 9px sans-serif';
+            const shortPreview = optText.length > 12 ? optText.slice(0, 10) + '...' : optText;
+            ctx.fillText(shortPreview, currentGateX, gateTop + 45);
+          }
         });
       }
 
@@ -528,7 +558,7 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
       const bobY = Math.sin(runFrame * Math.PI) * 3;
 
       // Hero shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
       ctx.beginPath();
       ctx.ellipse(playerX, playerY + 22, 16, 6, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -537,27 +567,27 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
       const isDamaged = feedbackState.type === 'wrong' && Math.floor(now / 100) % 2 === 0;
 
       if (!isDamaged) {
-        // Hero Cape (fluttering)
-        ctx.fillStyle = '#0D9488';
+        // Hero Cape (Cerulean Blue)
+        ctx.fillStyle = '#0284C7';
         ctx.beginPath();
         ctx.moveTo(playerX - 6, playerY - 4 + bobY);
         ctx.lineTo(playerX - 22, playerY + 10 + (runFrame % 2) * 4);
         ctx.lineTo(playerX - 6, playerY + 12 + bobY);
         ctx.fill();
 
-        // Hero Body & Armor
-        ctx.fillStyle = '#F5C542'; // Gold breastplate
+        // Hero Body & Armor (Neon Rose breastplate)
+        ctx.fillStyle = '#FF1376';
         ctx.fillRect(playerX - 7, playerY - 8 + bobY, 14, 18);
 
         // Hero Helmet
         ctx.fillStyle = '#CBD5E1';
         ctx.fillRect(playerX - 6, playerY - 20 + bobY, 12, 12);
         // Visor slit
-        ctx.fillStyle = '#0F172A';
+        ctx.fillStyle = '#08090C';
         ctx.fillRect(playerX - 1, playerY - 16 + bobY, 8, 3);
 
         // Legs (Running cycle)
-        ctx.fillStyle = '#475569';
+        ctx.fillStyle = '#334155';
         if (runFrame === 0 || runFrame === 2) {
           ctx.fillRect(playerX - 6, playerY + 10 + bobY, 4, 11);
           ctx.fillRect(playerX + 2, playerY + 8 + bobY, 4, 11);
@@ -566,16 +596,49 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
           ctx.fillRect(playerX + 4, playerY + 11 + bobY, 5, 9);
         }
 
-        // Lantern in hand (provides light forward)
-        ctx.fillStyle = '#FBBF24';
+        // Lantern in hand
+        ctx.fillStyle = '#38BDF8';
         ctx.beginPath();
         ctx.arc(playerX + 11, playerY + 3 + bobY, 4, 0, Math.PI * 2);
         ctx.fill();
       }
 
+      // --- STAGE OVERLAY IF NOT YET READY ---
+      if (!isReadyRef.current) {
+        ctx.fillStyle = 'rgba(8, 9, 12, 0.72)';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // Banner box
+        const bannerW = 460;
+        const bannerH = 110;
+        const bannerX = (CANVAS_WIDTH - bannerW) / 2;
+        const bannerY = (CANVAS_HEIGHT - bannerH) / 2;
+        ctx.fillStyle = '#10131A';
+        ctx.strokeStyle = '#0284C7';
+        ctx.lineWidth = 2;
+        ctx.fillRect(bannerX, bannerY, bannerW, bannerH);
+        ctx.strokeRect(bannerX, bannerY, bannerW, bannerH);
+
+        // Pulsing Neon Rose dot
+        ctx.fillStyle = '#FF1376';
+        ctx.beginPath();
+        ctx.arc(CANVAS_WIDTH / 2, bannerY + 28, 5 + Math.sin(now * 0.006) * 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 12px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('QUESTION PRESENTED', CANVAS_WIDTH / 2, bannerY + 52);
+
+        ctx.fillStyle = '#38BDF8';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText('CLICK "READY" BELOW TO REVEAL OPTIONS & SPRINT (60s)', CANVAS_WIDTH / 2, bannerY + 80);
+      }
+
       // --- FLOATING FEEDBACK PARTICLES ---
       if (feedbackState.type === 'correct') {
-        ctx.fillStyle = '#F5C542';
+        ctx.fillStyle = '#38BDF8';
         ctx.font = 'bold 18px monospace';
         ctx.textAlign = 'center';
         ctx.fillText('+100', playerX + 15, playerY - 26);
@@ -626,12 +689,12 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
 
   return (
     <div className="w-full max-w-4xl mx-auto px-3 sm:px-4 py-4 flex flex-col items-center select-none">
-      {/* 1. HUD TOP BAR (DOM elements for crisp accessibility) */}
-      <div className="w-full bg-[#12162B] border-2 border-[#232A47] rounded-xl p-3 sm:p-4 mb-3 flex items-center justify-between gap-3 shadow-xl">
-        {/* Lives (3 pixel hearts) */}
+      {/* 1. HUD TOP BAR */}
+      <div className="w-full bg-[#10131A] border-2 border-[#202636] rounded-xl p-3 sm:p-4 mb-3 flex items-center justify-between gap-3 shadow-xl">
+        {/* Lives (3 pixel hearts in Neon Rose) */}
         <div className="flex items-center gap-1.5" aria-label={`Lives remaining: ${practiceMode ? 'Practice mode' : livesLeft}`}>
           {practiceMode ? (
-            <span className="text-xs font-pixel text-[#2DD4BF] bg-teal-950/80 px-2 py-0.5 rounded border border-teal-500/40">
+            <span className="text-xs font-pixel text-[#38BDF8] bg-sky-950/80 px-2 py-0.5 rounded border border-sky-500/40">
               PRACTICE
             </span>
           ) : (
@@ -640,8 +703,8 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
                 key={h}
                 className={`w-5 h-5 transition-transform ${
                   h <= livesLeft
-                    ? 'text-red-500 fill-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]'
-                    : 'text-slate-600 fill-transparent'
+                    ? 'text-[#FF1376] fill-[#FF1376] drop-shadow-[0_0_8px_rgba(255,19,118,0.6)]'
+                    : 'text-slate-700 fill-transparent'
                 }`}
                 aria-hidden="true"
               />
@@ -649,18 +712,45 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
           )}
         </div>
 
-        {/* Question Counter & Streak */}
+        {/* 60-Second Countdown Timer Badge */}
+        {isReady ? (
+          <div className="flex items-center gap-1.5 font-mono text-xs sm:text-sm font-bold bg-[#08090C] px-3 py-1 rounded-lg border border-[#202636] shadow-inner">
+            <Clock
+              className={`w-4 h-4 ${
+                timeRemainingSeconds <= 15
+                  ? 'text-[#FF1376] animate-pulse'
+                  : 'text-[#38BDF8]'
+              }`}
+            />
+            <span
+              className={
+                timeRemainingSeconds <= 15
+                  ? 'text-[#FF1376] font-bold'
+                  : 'text-slate-100'
+              }
+            >
+              {timeRemainingSeconds}s remaining
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-[#38BDF8] bg-[#08090C] px-3 py-1 rounded-lg border border-[#0284C7]/40 shadow-inner">
+            <Clock className="w-3.5 h-3.5 text-[#38BDF8]" />
+            <span>60s on Ready</span>
+          </div>
+        )}
+
+        {/* Question Counter, Streak & Score */}
         <div className="flex items-center gap-3 text-xs sm:text-sm font-mono">
-          <span className="text-slate-300">
-            Question <strong className="text-white font-bold">{currentQuestionIndex + 1}</strong> of {questions.length}
+          <span className="text-slate-300 hidden sm:inline">
+            Q <strong className="text-white font-bold">{currentQuestionIndex + 1}</strong>/{questions.length}
           </span>
           {streak > 1 && (
-            <span className="text-[#F5C542] font-pixel text-[11px] bg-amber-950/60 px-2 py-0.5 rounded border border-amber-500/40 animate-pulse">
+            <span className="text-[#FF4D9E] font-pixel text-[11px] bg-rose-950/70 px-2 py-0.5 rounded border border-[#FF1376]/50 animate-pulse">
               Streak x{streak}
             </span>
           )}
           <span className="font-semibold text-white">
-            Score: <span className="text-[#F5C542] font-bold">{score}</span>
+            Score: <span className="text-[#38BDF8] font-bold">{score}</span>
           </span>
         </div>
 
@@ -670,8 +760,8 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
           <button
             type="button"
             onClick={() => setReduceMotion(!reduceMotion)}
-            className={`p-1.5 rounded transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#F5C542] ${
-              reduceMotion ? 'bg-[#2A345B] text-[#F5C542]' : 'hover:bg-[#1C2344] text-slate-400'
+            className={`p-1.5 rounded transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[#0284C7] ${
+              reduceMotion ? 'bg-[#1C2333] text-[#38BDF8]' : 'hover:bg-[#161A24] text-slate-400'
             }`}
             title={reduceMotion ? 'Reduced motion active' : 'Enable reduced motion'}
             aria-label="Toggle reduced motion"
@@ -683,20 +773,20 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
           <button
             type="button"
             onClick={toggleMute}
-            className="p-1.5 rounded hover:bg-[#1C2344] text-slate-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#F5C542]"
+            className="p-1.5 rounded hover:bg-[#161A24] text-slate-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#0284C7]"
             aria-label={muted ? 'Unmute sound effects' : 'Mute sound effects'}
           >
-            {muted ? <VolumeX className="w-4 h-4 text-slate-400" /> : <Volume2 className="w-4 h-4 text-[#2DD4BF]" />}
+            {muted ? <VolumeX className="w-4 h-4 text-slate-400" /> : <Volume2 className="w-4 h-4 text-[#38BDF8]" />}
           </button>
 
           {/* Pause button */}
           <button
             type="button"
             onClick={() => setIsPaused(!isPaused)}
-            className="p-1.5 rounded hover:bg-[#1C2344] text-slate-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#F5C542]"
+            className="p-1.5 rounded hover:bg-[#161A24] text-slate-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-[#0284C7]"
             aria-label={isPaused ? 'Resume game' : 'Pause game'}
           >
-            {isPaused ? <Play className="w-4 h-4 text-[#22C55E]" /> : <Pause className="w-4 h-4 text-slate-300" />}
+            {isPaused ? <Play className="w-4 h-4 text-[#10B981]" /> : <Pause className="w-4 h-4 text-slate-300" />}
           </button>
 
           {/* Quiz mode fallback toggle */}
@@ -704,7 +794,7 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
             <button
               type="button"
               onClick={onSwitchToQuizMode}
-              className="text-[11px] text-slate-400 hover:text-white px-2 py-1 rounded bg-[#0A0D1B] border border-[#232B4A] transition-colors"
+              className="text-[11px] text-slate-400 hover:text-white px-2 py-1 rounded bg-[#08090C] border border-[#202636] transition-colors"
               title="Switch to card-based quiz mode"
             >
               Quiz Mode
@@ -714,19 +804,35 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
       </div>
 
       {/* 2. QUESTION PANEL (DOM text above canvas, WCAG legible) */}
-      <div className="w-full bg-[#12162B] border-2 border-[#232A47] rounded-xl p-4 sm:p-5 mb-3 shadow-lg text-center">
-        <div className="flex items-center justify-between text-xs font-mono text-slate-400 mb-1">
-          <span className="uppercase text-[#2DD4BF] font-semibold">{currentQ.difficulty} Challenge</span>
+      <div className="w-full bg-[#10131A] border-2 border-[#202636] rounded-xl p-4 sm:p-5 mb-3 shadow-lg text-center relative overflow-hidden">
+        <div className="flex items-center justify-between text-xs font-mono text-slate-400 mb-1.5">
+          <span className="uppercase text-[#38BDF8] font-bold tracking-wider">{currentQ.difficulty} Challenge</span>
           <span className="text-slate-400">Page {currentQ.page}</span>
         </div>
 
         <h2 className="text-base sm:text-lg md:text-xl font-bold text-white leading-snug">
           {currentQ.question}
         </h2>
+
+        {/* 60s Progress Bar (Active when Ready) */}
+        {isReady && (
+          <div className="w-full bg-[#08090C] border border-[#202636] rounded-full h-2 mt-3 overflow-hidden">
+            <div
+              className={`h-full transition-all duration-150 ${
+                timeRemainingSeconds <= 15
+                  ? 'bg-gradient-to-r from-[#FF1376] to-[#E11D48] animate-pulse'
+                  : 'bg-gradient-to-r from-[#0284C7] to-[#38BDF8]'
+              }`}
+              style={{
+                width: `${Math.max(0, Math.min(100, (timeRemainingSeconds / 60) * 100))}%`,
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* 3. GAME CANVAS (16:9 ratio, pixelated rendering) */}
-      <div className="w-full relative rounded-xl overflow-hidden border-2 border-[#232A47] shadow-2xl bg-[#080A14] aspect-video">
+      <div className="w-full relative rounded-xl overflow-hidden border-2 border-[#202636] shadow-2xl bg-[#08090C] aspect-video">
         <canvas
           ref={canvasRef}
           width={CANVAS_WIDTH}
@@ -746,7 +852,7 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
                 setIsPaused(true);
                 setFeedbackState((prev) => ({ ...prev, showExplanation: true, whyTimerActive: false }));
               }}
-              className="btn-pixel-teal px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-lg cursor-pointer"
+              className="btn-pixel-cerulean px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-lg cursor-pointer"
             >
               <HelpCircle className="w-3.5 h-3.5" />
               <span>Why?</span>
@@ -757,17 +863,17 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
         {/* Explanation Modal Overlay (on wrong answer or when 'Why?' is clicked) */}
         {feedbackState.showExplanation && (
           <div className="absolute inset-0 z-30 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-            <div className="w-full max-w-lg bg-[#12162B] border-2 border-[#F5C542] rounded-xl p-5 sm:p-6 shadow-2xl text-left">
-              <div className="flex items-center gap-2 text-xs font-bold text-[#F5C542] uppercase tracking-wider mb-2">
+            <div className="w-full max-w-lg bg-[#10131A] border-2 border-[#0284C7] rounded-xl p-5 sm:p-6 shadow-2xl text-left">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider mb-2">
                 {feedbackState.type === 'wrong' ? (
                   <>
-                    <XCircle className="w-4 h-4 text-[#EF4444]" />
-                    <span className="text-[#EF4444]">Incorrect Answer</span>
+                    <XCircle className="w-4 h-4 text-[#FF1376]" />
+                    <span className="text-[#FF1376]">Incorrect Answer</span>
                   </>
                 ) : (
                   <>
-                    <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
-                    <span className="text-[#22C55E]">Correct Explanation</span>
+                    <CheckCircle2 className="w-4 h-4 text-[#10B981]" />
+                    <span className="text-[#10B981]">Correct Explanation</span>
                   </>
                 )}
               </div>
@@ -779,13 +885,13 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
                 </span>
               </p>
 
-              <p className="text-xs sm:text-sm text-slate-200 leading-relaxed mb-4 font-sans bg-[#0A0D1B] p-3 rounded border border-[#232B4A]">
+              <p className="text-xs sm:text-sm text-slate-200 leading-relaxed mb-4 font-sans bg-[#08090C] p-3 rounded border border-[#202636]">
                 {currentQ.explanation}
               </p>
 
               {/* Source Quote from PDF */}
-              <div className="p-2.5 rounded bg-[#090C1A] border-l-2 border-teal-400 text-xs text-teal-200 mb-5">
-                <span className="font-semibold block text-[10px] text-teal-400 font-mono mb-0.5">
+              <div className="p-2.5 rounded bg-[#08090C] border-l-2 border-[#38BDF8] text-xs text-sky-200 mb-5">
+                <span className="font-semibold block text-[10px] text-[#38BDF8] font-mono mb-0.5">
                   FROM THE PDF (Page {currentQ.page}):
                 </span>
                 <span className="italic font-serif">&ldquo;{currentQ.sourceQuote}&rdquo;</span>
@@ -795,7 +901,7 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
                 <button
                   type="button"
                   onClick={handleContinueAfterWrong}
-                  className="btn-pixel-gold px-6 py-2.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer"
+                  className="btn-pixel-cerulean px-6 py-2.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer"
                 >
                   <span>Continue</span>
                   <ArrowRight className="w-4 h-4" />
@@ -807,21 +913,21 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
 
         {/* Pause Overlay */}
         {isPaused && !feedbackState.showExplanation && (
-          <div className="absolute inset-0 z-20 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-[#12162B] border-2 border-[#232A47] rounded-xl p-6 text-center shadow-2xl">
-              <h3 className="font-pixel text-base text-[#F5C542] mb-5">Paused</h3>
+          <div className="absolute inset-0 z-20 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-[#10131A] border-2 border-[#202636] rounded-xl p-6 text-center shadow-2xl">
+              <h3 className="font-pixel text-base text-[#38BDF8] mb-5">Paused</h3>
               <div className="flex flex-col gap-3">
                 <button
                   type="button"
                   onClick={() => setIsPaused(false)}
-                  className="btn-pixel-gold py-2.5 rounded-lg text-xs font-bold"
+                  className="btn-pixel-cerulean py-2.5 rounded-lg text-xs font-bold"
                 >
                   Resume
                 </button>
                 <button
                   type="button"
                   onClick={onQuit}
-                  className="btn-pixel-dark py-2.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-red-400"
+                  className="btn-pixel-dark py-2.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-[#FF1376]"
                 >
                   Quit Level
                 </button>
@@ -831,62 +937,117 @@ export const ConceptRunnerGame: React.FC<ConceptRunnerGameProps> = ({
         )}
       </div>
 
-      {/* 4. DOM FULL OPTION TEXT PANEL (A, B, C) */}
-      <div className="w-full grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mt-3">
-        {currentQ.options.map((opt, idx) => {
-          const letter = ['A', 'B', 'C'][idx];
-          const isPlayerInThisLane = playerLane === idx;
+      {/* 4. READY STAGE vs OPTIONS SELECTION */}
+      {!isReady ? (
+        /* STEP 1: Question-First State -> Options NOT visible until player clicks READY */
+        <div className="w-full bg-[#10131A] border-2 border-[#202636] rounded-xl p-6 sm:p-7 mt-3 flex flex-col items-center justify-center text-center shadow-xl animate-in fade-in duration-200">
+          <div className="w-12 h-12 rounded-full bg-[#0284C7]/15 border border-[#0284C7]/50 flex items-center justify-center text-[#38BDF8] mb-3 shadow-[0_0_16px_rgba(2,132,199,0.3)]">
+            <Clock className="w-6 h-6" />
+          </div>
+          <h3 className="font-pixel text-xs sm:text-sm text-white mb-2 tracking-wider">
+            QUESTION PRESENTED
+          </h3>
+          <p className="text-xs sm:text-sm text-slate-300 max-w-md mb-5 leading-relaxed font-sans">
+            Read the challenge carefully above. When you are ready to reveal the options and sprint to choose your answer, click <strong>READY</strong> to start the <strong>60-second</strong> challenge.
+          </p>
+          <button
+            type="button"
+            onClick={handleReady}
+            className="btn-pixel-cerulean px-8 py-3.5 rounded-xl font-pixel text-xs sm:text-sm flex items-center gap-3 cursor-pointer hover:scale-103 transition-transform"
+            autoFocus
+          >
+            <Play className="w-4 h-4 fill-current" />
+            <span>I AM READY · REVEAL OPTIONS (60s)</span>
+          </button>
+          <span className="text-[11px] text-slate-500 font-mono mt-3">
+            Tip: You can also press Space or Enter on your keyboard
+          </span>
+        </div>
+      ) : (
+        /* STEP 2: Options and Game active -> Options are visible and answer selectable */
+        <div className="w-full mt-3 animate-in fade-in duration-200">
+          <div className="w-full grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
+            {currentQ.options.map((opt, idx) => {
+              const letter = ['A', 'B', 'C'][idx];
+              const isPlayerInThisLane = playerLane === idx;
 
-          return (
-            <div
-              key={idx}
-              onClick={() => setPlayerLane(idx)}
-              className={`p-3 rounded-lg border-2 cursor-pointer transition-all flex items-start gap-2.5 text-left ${
-                isPlayerInThisLane
-                  ? 'bg-[#1C2344] border-[#F5C542] text-white shadow-[0_0_12px_rgba(245,197,66,0.2)]'
-                  : 'bg-[#111528] border-[#202747] text-slate-300 hover:border-[#2DD4BF]/50'
-              }`}
-            >
-              <span
-                className={`w-6 h-6 rounded text-xs font-bold font-mono flex items-center justify-center flex-shrink-0 ${
-                  isPlayerInThisLane ? 'bg-[#F5C542] text-black' : 'bg-[#181E38] text-slate-300 border border-[#2F3A66]'
-                }`}
-              >
-                {letter}
-              </span>
-              <span className="text-xs sm:text-sm leading-snug line-clamp-3">
-                {opt}
-              </span>
+              return (
+                <div
+                  key={idx}
+                  onClick={() => {
+                    if (!isResolvingRef.current) {
+                      setPlayerLane(idx);
+                      resolveAnswer(idx);
+                    }
+                  }}
+                  className={`p-3.5 rounded-lg border-2 cursor-pointer transition-all flex items-start gap-2.5 text-left group ${
+                    isPlayerInThisLane
+                      ? 'bg-[#141C2B] border-[#FF1376] text-white shadow-[0_0_16px_rgba(255,19,118,0.25)]'
+                      : 'bg-[#10131A] border-[#202636] text-slate-300 hover:border-[#0284C7] hover:bg-[#121622]'
+                  }`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Option ${letter}: ${opt}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setPlayerLane(idx);
+                      resolveAnswer(idx);
+                    }
+                  }}
+                >
+                  <span
+                    className={`w-7 h-7 rounded text-xs font-bold font-mono flex items-center justify-center flex-shrink-0 transition-colors ${
+                      isPlayerInThisLane
+                        ? 'bg-[#FF1376] text-white shadow-xs'
+                        : 'bg-[#161B26] text-[#38BDF8] border border-[#20283A] group-hover:border-[#0284C7]'
+                    }`}
+                  >
+                    {letter}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs sm:text-sm leading-snug line-clamp-3 block">
+                      {opt}
+                    </span>
+                    <span className="text-[10px] text-sky-400 font-mono mt-1 block opacity-80 group-hover:opacity-100">
+                      Tap to select {letter}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 5. TOUCH ON-SCREEN LANE BUTTONS (Mobile & Tablet) */}
+          <div className="w-full flex items-center justify-between gap-2 mt-3 pt-3 border-t border-[#202636]">
+            <div className="text-[11px] font-mono text-slate-400 hidden sm:block">
+              Controls: Click option to answer · W / S / Arrows or 1, 2, 3 to navigate · Space to pause
             </div>
-          );
-        })}
-      </div>
 
-      {/* 5. TOUCH ON-SCREEN LANE BUTTONS (Mobile & Tablet) */}
-      <div className="w-full flex items-center justify-between gap-2 mt-3 pt-3 border-t border-[#1C223D]">
-        <div className="text-[11px] font-mono text-slate-400 hidden sm:block">
-          Controls: W / S or &uarr; / &darr; or 1, 2, 3 to switch lanes · Space to pause
+            {/* On-screen lane buttons */}
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
+              <span className="text-xs text-slate-400 mr-1 sm:hidden">Lane:</span>
+              {['A (Top)', 'B (Mid)', 'C (Bot)'].map((label, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setPlayerLane(idx);
+                    resolveAnswer(idx);
+                  }}
+                  className={`px-3.5 py-2 rounded-lg text-xs font-bold border-2 transition-all flex-1 sm:flex-initial cursor-pointer ${
+                    playerLane === idx
+                      ? 'bg-[#FF1376] text-white border-[#FF4D9E] shadow-md'
+                      : 'btn-pixel-dark text-slate-300'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-
-        {/* On-screen lane buttons */}
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-center">
-          <span className="text-xs text-slate-400 mr-1 sm:hidden">Switch lane:</span>
-          {['A (Top)', 'B (Mid)', 'C (Bot)'].map((label, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => setPlayerLane(idx)}
-              className={`px-4 py-2.5 rounded-lg text-xs font-bold border-2 transition-all flex-1 sm:flex-initial ${
-                playerLane === idx
-                  ? 'bg-[#F5C542] text-black border-[#D9A422] shadow-md'
-                  : 'btn-pixel-dark text-slate-300'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
     </div>
   );
 };

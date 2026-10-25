@@ -1,4 +1,4 @@
-import { Type } from '@google/genai';
+import { Type, ThinkingLevel } from '@google/genai';
 import { ai } from './gemini.ts';
 import { Concept, Question } from '../src/types/course.ts';
 import { validateAndCleanQuestions, shuffleQuestionsWithProgression } from '../src/services/questionValidator.ts';
@@ -104,8 +104,8 @@ NUMBER OF CONCEPTS: ${concepts.length} (Requires exactly ${concepts.length * 3} 
 CONCEPTS TO TEST:
 ${conceptsSummary}`;
 
-  // Helper to attempt generation with a specific Gemini model with strict timeout
-  const tryGenerateWithModel = async (modelName: string, timeoutMs = 4000): Promise<any | null> => {
+  // Helper to attempt generation with a specific Gemini model with low thinking latency
+  const tryGenerateWithModel = async (modelName: string, timeoutMs = 6000): Promise<any | null> => {
     try {
       const callPromise = ai.models.generateContent({
         model: modelName,
@@ -113,6 +113,7 @@ ${conceptsSummary}`;
         config: {
           responseMimeType: 'application/json',
           responseSchema: QUESTIONS_SCHEMA,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         },
       });
 

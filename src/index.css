@@ -2,22 +2,35 @@
 
 @layer base {
   :root {
-    --bg-dungeon: #0B0D19;
-    --bg-card: #12162B;
-    --bg-card-raised: #1A203C;
-    --border-dungeon: #232A47;
-    --border-bright: #384370;
-    --text-primary: #E2E8F0;
+    --bg-dungeon: #08090C; /* Jet Black */
+    --bg-card: #10131A;
+    --bg-card-raised: #161A24;
+    --border-dungeon: #202636;
+    --border-bright: #0284C7; /* Cerulean Blue */
+    --text-primary: #F1F5F9;
     --text-muted: #94A3B8;
-    --gold: #F5C542;
-    --gold-dim: #D9A422;
-    --gold-dark: #9E7410;
-    --teal: #2DD4BF;
-    --teal-dim: #14B8A6;
-    --teal-dark: #0F766E;
-    --red: #EF4444;
-    --green: #22C55E;
-    --purple: #C084FC;
+
+    /* Primary Tripartite Palette */
+    --jet-black: #08090C;
+    --cerulean: #0284C7;
+    --cerulean-bright: #38BDF8;
+    --cerulean-dim: #0369A1;
+    --cerulean-dark: #075985;
+    --neon-rose: #FF1376;
+    --neon-rose-bright: #FF4D9E;
+    --neon-rose-dim: #E11D48;
+    --neon-rose-dark: #9F1239;
+
+    /* Theme Aliases */
+    --gold: #FF1376; /* Neon Rose accent */
+    --gold-dim: #E11D48;
+    --gold-dark: #9F1239;
+    --teal: #0284C7; /* Cerulean Blue primary */
+    --teal-dim: #0369A1;
+    --teal-dark: #075985;
+    --red: #FF1376;
+    --green: #10B981;
+    --purple: #0EA5E9;
 
     --ui-scale-multiplier: 1;
   }
@@ -52,8 +65,8 @@
   position: absolute;
   top: -100px;
   left: 16px;
-  background: #F5C542;
-  color: #070913;
+  background: #FF1376;
+  color: #FFFFFF;
   padding: 8px 16px;
   font-weight: 700;
   z-index: 9999;
@@ -64,52 +77,59 @@
   top: 16px;
 }
 
-/* Chunky retro game buttons */
-.btn-pixel-gold {
-  background-color: #F5C542;
-  color: #0F121E;
+/* Chunky retro game buttons with Cerulean Blue, Neon Rose, and Jet Black */
+.btn-pixel-gold,
+.btn-pixel-rose {
+  background-color: #FF1376;
+  color: #FFFFFF;
   font-weight: 700;
-  border: 2px solid #D9A422;
-  border-bottom: 4px solid #9E7410;
-  border-right: 4px solid #9E7410;
-  box-shadow: 0 4px 0 0 #05060A;
+  border: 2px solid #FF4D9E;
+  border-bottom: 4px solid #9F1239;
+  border-right: 4px solid #9F1239;
+  box-shadow: 0 4px 14px rgba(255, 19, 118, 0.4);
   transition: all 0.08s ease-in-out;
 }
-.btn-pixel-gold:hover:not(:disabled) {
-  filter: brightness(1.08);
-  box-shadow: 0 4px 12px rgba(245, 197, 66, 0.35);
+.btn-pixel-gold:hover:not(:disabled),
+.btn-pixel-rose:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: 0 4px 18px rgba(255, 19, 118, 0.55);
 }
-.btn-pixel-gold:active:not(:disabled) {
+.btn-pixel-gold:active:not(:disabled),
+.btn-pixel-rose:active:not(:disabled) {
   transform: translate(2px, 2px);
   border-bottom-width: 2px;
   border-right-width: 2px;
   box-shadow: 0 1px 0 0 #05060A;
 }
-.btn-pixel-gold:disabled {
-  background-color: #3B3F54;
-  color: #7B829E;
-  border-color: #2D3142;
-  border-bottom: 4px solid #1E212D;
-  border-right: 4px solid #1E212D;
+.btn-pixel-gold:disabled,
+.btn-pixel-rose:disabled {
+  background-color: #351C2A;
+  color: #7B5F70;
+  border-color: #271420;
+  border-bottom: 4px solid #1E0E18;
+  border-right: 4px solid #1E0E18;
   cursor: not-allowed;
   box-shadow: none;
 }
 
-.btn-pixel-teal {
-  background-color: #2DD4BF;
-  color: #08151D;
+.btn-pixel-teal,
+.btn-pixel-cerulean {
+  background-color: #0284C7;
+  color: #FFFFFF;
   font-weight: 700;
-  border: 2px solid #14B8A6;
-  border-bottom: 4px solid #0F766E;
-  border-right: 4px solid #0F766E;
-  box-shadow: 0 4px 0 0 #05060A;
+  border: 2px solid #38BDF8;
+  border-bottom: 4px solid #075985;
+  border-right: 4px solid #075985;
+  box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
   transition: all 0.08s ease-in-out;
 }
-.btn-pixel-teal:hover:not(:disabled) {
-  filter: brightness(1.08);
-  box-shadow: 0 4px 12px rgba(45, 212, 191, 0.35);
+.btn-pixel-teal:hover:not(:disabled),
+.btn-pixel-cerulean:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: 0 4px 18px rgba(2, 132, 199, 0.55);
 }
-.btn-pixel-teal:active:not(:disabled) {
+.btn-pixel-teal:active:not(:disabled),
+.btn-pixel-cerulean:active:not(:disabled) {
   transform: translate(2px, 2px);
   border-bottom-width: 2px;
   border-right-width: 2px;
@@ -117,18 +137,19 @@
 }
 
 .btn-pixel-dark {
-  background-color: #1A1F36;
+  background-color: #121520;
   color: #E2E8F0;
   font-weight: 600;
-  border: 2px solid #2B3356;
-  border-bottom: 4px solid #111424;
-  border-right: 4px solid #111424;
-  box-shadow: 0 4px 0 0 #05060A;
+  border: 2px solid #242D40;
+  border-bottom: 4px solid #0A0D15;
+  border-right: 4px solid #0A0D15;
+  box-shadow: 0 4px 0 0 #040507;
   transition: all 0.08s ease-in-out;
 }
 .btn-pixel-dark:hover:not(:disabled) {
-  background-color: #232A47;
-  border-color: #3A4574;
+  background-color: #181D2B;
+  border-color: #0284C7;
+  box-shadow: 0 0 12px rgba(2, 132, 199, 0.25);
 }
 .btn-pixel-dark:active:not(:disabled) {
   transform: translate(2px, 2px);
@@ -138,17 +159,17 @@
 }
 
 .btn-pixel-red {
-  background-color: #EF4444;
+  background-color: #FF1376;
   color: #FFFFFF;
   font-weight: 700;
-  border: 2px solid #DC2626;
-  border-bottom: 4px solid #991B1B;
-  border-right: 4px solid #991B1B;
-  box-shadow: 0 4px 0 0 #05060A;
+  border: 2px solid #FF4D9E;
+  border-bottom: 4px solid #9F1239;
+  border-right: 4px solid #9F1239;
+  box-shadow: 0 4px 14px rgba(255, 19, 118, 0.4);
   transition: all 0.08s ease-in-out;
 }
 .btn-pixel-red:hover:not(:disabled) {
-  filter: brightness(1.08);
+  filter: brightness(1.1);
 }
 .btn-pixel-red:active:not(:disabled) {
   transform: translate(2px, 2px);
@@ -157,25 +178,22 @@
   box-shadow: 0 1px 0 0 #05060A;
 }
 
-/* Dungeon card styles with glow */
+/* Dungeon card styles with Cerulean / Neon Rose glow */
 .dungeon-card {
-  background-color: #12162B;
-  border: 2px solid #232A47;
+  background-color: #10131A;
+  border: 2px solid #202636;
   border-radius: 8px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 .dungeon-card:hover {
-  border-color: #384370;
-  box-shadow: 0 0 16px rgba(45, 212, 191, 0.12);
+  border-color: #0284C7;
+  box-shadow: 0 0 18px rgba(2, 132, 199, 0.2);
 }
 
-/* Subtle scanlines effect background overlay */
+/* Plain background (no checks / no grid) */
 .retro-grid-bg {
-  background-color: #0B0D19;
-  background-image:
-    linear-gradient(rgba(26, 32, 60, 0.25) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(26, 32, 60, 0.25) 1px, transparent 1px);
-  background-size: 32px 32px;
+  background-color: #08090C;
+  background-image: none;
 }
 
 /* Custom scrollbars */
@@ -184,14 +202,14 @@
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #0B0D19;
+  background: #08090C;
 }
 ::-webkit-scrollbar-thumb {
-  background: #232A47;
+  background: #202636;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #384370;
+  background: #0284C7;
 }
 
 /* Screen Transitions: 150ms-200ms fade + 8px slide */
