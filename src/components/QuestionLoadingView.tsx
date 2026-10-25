@@ -12,6 +12,7 @@ import {
   Gamepad2,
   Loader2,
 } from 'lucide-react';
+import { RotatingTips } from './common/RotatingTips.tsx';
 
 export interface SegmentStatusItem {
   gameId: GameChoice;
@@ -187,6 +188,10 @@ export const QuestionLoadingView: React.FC<QuestionLoadingViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Rotating tips under loader */}
+      {!error && <RotatingTips className="mt-6" />}
     </div>
   );
 };
+

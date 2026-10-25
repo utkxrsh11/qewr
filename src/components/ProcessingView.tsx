@@ -1,5 +1,6 @@
 import React from 'react';
 import { PixelTorch } from './PixelTorch.tsx';
+import { RotatingTips } from './common/RotatingTips.tsx';
 import { CheckCircle2, Circle, Loader2, AlertTriangle, RefreshCw, ArrowLeft, XCircle } from 'lucide-react';
 
 interface ProcessingViewProps {
@@ -31,7 +32,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
   onBackToUpload,
 }) => {
   return (
-    <div className="w-full max-w-xl mx-auto px-4 py-12 flex flex-col items-center">
+    <div className="w-full max-w-xl mx-auto px-4 py-8 flex flex-col items-center view-transition">
       <div className="w-full bg-[#12162B] border-2 border-[#232A47] rounded-xl p-6 sm:p-8 shadow-2xl relative flex flex-col items-center">
         {/* Animated Pixel Loader */}
         <div className="mb-4">
@@ -40,7 +41,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
 
         {error ? (
           /* Error State Screen */
-          <div className="w-full flex flex-col items-center text-center animate-in fade-in duration-200">
+          <div className="w-full flex flex-col items-center text-center animate-fade-in">
             <div className="w-12 h-12 rounded-full bg-red-950/80 border-2 border-[#EF4444] text-[#EF4444] flex items-center justify-center mb-4">
               <AlertTriangle className="w-6 h-6" aria-hidden="true" />
             </div>
@@ -49,7 +50,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
               Quest Interrupted
             </h2>
 
-            <p className="text-sm sm:text-base text-slate-200 max-w-md mb-6 leading-relaxed">
+            <p className="text-sm sm:text-base text-slate-200 max-w-md mb-6 leading-relaxed font-sans">
               {error.message}
             </p>
 
@@ -82,7 +83,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
             </h2>
 
             {/* Step-by-step Status List */}
-            <div className="w-full max-w-sm flex flex-col gap-3 mb-8" role="status" aria-live="polite">
+            <div className="w-full max-w-sm flex flex-col gap-3 mb-6" role="status" aria-live="polite">
               {DEFAULT_STEPS.map((stepText, idx) => {
                 const isCompleted = currentStepIndex > idx;
                 const isCurrent = currentStepIndex === idx;
@@ -126,7 +127,7 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
               })}
             </div>
 
-            {/* 3. Cancel Button */}
+            {/* Cancel Button */}
             <button
               type="button"
               onClick={onCancel}
@@ -139,6 +140,9 @@ export const ProcessingView: React.FC<ProcessingViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Rotating educational tip line */}
+      {!error && <RotatingTips className="mt-6" />}
     </div>
   );
 };

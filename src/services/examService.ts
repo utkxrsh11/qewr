@@ -1,36 +1,41 @@
 /**
  * Exam Service
- * Manages exam target date, days remaining, and daily concept quota in localStorage.
+ * Manages optional exam target date and daily concept quota in localStorage (Phase 6).
  */
 
 import { ExamInfo, Course, StudyQuestProgress } from '../types/course.ts';
-import { isDue, strength } from './masteryModel.ts';
+import { stateOf, getNow } from './masteryModel.ts';
 
 const EXAM_KEY = 'studyquest_exam';
-
-const DEFAULT_EXAM_INFO: ExamInfo = {
-  examDate: undefined,
-  targetReadiness: 85,
-};
 
 export function loadExamInfo(): ExamInfo {
   try {
     const raw = localStorage.getItem(EXAM_KEY);
-    if (!raw) return { ...DEFAULT_EXAM_INFO };
+    if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return {
-      examDate: parsed.examDate || undefined,
-      targetReadiness: Number(parsed.targetReadiness) || 85,
-    };
+    const dateStr = parsed.date || parsed.examDate;
+    if (dateStr && isValidDateString(dateStr)) {
+      return {
+        date: dateStr,
+        examDate: dateStr,
+        targetReadiness: parsed.targetReadiness,
+      };
+    }
+    return {};
   } catch (err) {
     console.warn('[ExamService] Failed to load exam info:', err);
-    return { ...DEFAULT_EXAM_INFO };
+    return {};
   }
 }
 
 export function saveExamInfo(info: ExamInfo): void {
   try {
-    localStorage.setItem(EXAM_KEY, JSON.stringify(info));
+    const dateStr = info.date || info.examDate;
+    if (dateStr && isValidDateString(dateStr)) {
+      localStorage.setItem(EXAM_KEY, JSON.stringify({ date: dateStr }));
+    } else {
+      localStorage.removeItem(EXAM_KEY);
+    }
   } catch (err) {
     console.warn('[ExamService] Failed to save exam info:', err);
   }
@@ -44,16 +49,38 @@ export function clearExamInfo(): void {
   }
 }
 
-/**
- * Returns number of calendar days left until exam.
- * Returns null if no exam date is set.
- * Returns negative number if exam date is in the past.
- */
-export function getDaysUntilExam(examDateStr?: string): number | null {
-  if (!examDateStr) return null;
-  const examDate = new Date(examDateStr);
-  if (isNaN(examDate.getTime())) return null;
+export function isValidDateString(dateStr?: string): boolean {
+  if (!dateStr || typeof dateStr !== 'string') return false;
+  // Match YYYY-MM-DD format
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return false;
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  const d = parseInt(parts[2], 10);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return false;
+  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return false;
+  const dateObj = new Date(y, m - 1, d);
+  return (
+    dateObj.getFullYear() === y &&
+    dateObj.getMonth() === m - 1 &&
+    dateObj.getDate() === d
+  );
+}
 
+/**
+ * Returns whole calendar days left until exam.
+ * Returns null if no exam date.
+ * 0 if today. Negative if past.
+ */
+export function getDaysUntilExam(dateStr?: string): number | null {
+  if (!dateStr || !isValidDateString(dateStr)) return null;
+
+  const parts = dateStr.split('-');
+  const examYear = parseInt(parts[0], 10);
+  const examMonth = parseInt(parts[1], 10) - 1;
+  const examDay = parseInt(parts[2], 10);
+
+  const examDate = new Date(examYear, examMonth, examDay);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   examDate.setHours(0, 0, 0, 0);
@@ -63,68 +90,48 @@ export function getDaysUntilExam(examDateStr?: string): number | null {
 }
 
 /**
- * Calculates recommended daily revision quota to achieve target readiness before the exam date.
+ * Calculates daily concept target quota:
+ * X = ceil((untouched + weak + shaky concepts) / daysLeft).
  */
-export function calculateDailyQuota({
-  course,
-  progress,
-  examDate,
-  targetReadiness = 85,
-}: {
-  course: Course;
-  progress: StudyQuestProgress;
-  examDate?: string;
-  targetReadiness?: number;
-}): {
+export function calculateDailyQuota(
+  course: Course,
+  progress: StudyQuestProgress,
+  examDateStr?: string
+): {
   daysLeft: number | null;
-  conceptsNeedingWork: number;
   dailyQuota: number;
-  status: 'no_exam' | 'on_track' | 'urgent' | 'passed';
+  status: 'future' | 'today' | 'past' | 'none';
+  remainingConcepts: number;
 } {
-  const daysLeft = getDaysUntilExam(examDate);
-  const allConcepts = course.chapters.flatMap((c) => c.concepts || []);
-
-  // Concepts needing review or practice (strength < 0.8 or due)
-  const conceptsNeedingWork = allConcepts.filter((concept) => {
-    const p = progress.concepts[concept.id];
-    if (!p || p.answered === 0) return true; // untouched
-    if (isDue(p)) return true;
-    if (strength(p) < (targetReadiness / 100)) return true;
-    return false;
-  }).length;
-
+  const daysLeft = getDaysUntilExam(examDateStr);
   if (daysLeft === null) {
-    return {
-      daysLeft: null,
-      conceptsNeedingWork,
-      dailyQuota: Math.min(conceptsNeedingWork, 5),
-      status: 'no_exam',
-    };
+    return { daysLeft: null, dailyQuota: 0, status: 'none', remainingConcepts: 0 };
   }
+
+  const now = getNow();
+  let remainingConcepts = 0;
+  (course.chapters || []).forEach((ch) => {
+    (ch.concepts || []).forEach((c) => {
+      const p = progress.concepts[c.id];
+      const st = stateOf(p, now);
+      if (st === 'untouched' || st === 'weak' || st === 'shaky') {
+        remainingConcepts++;
+      }
+    });
+  });
 
   if (daysLeft < 0) {
-    return {
-      daysLeft,
-      conceptsNeedingWork,
-      dailyQuota: conceptsNeedingWork,
-      status: 'passed',
-    };
+    return { daysLeft, dailyQuota: 0, status: 'past', remainingConcepts };
   }
-
   if (daysLeft === 0) {
-    return {
-      daysLeft: 0,
-      conceptsNeedingWork,
-      dailyQuota: conceptsNeedingWork,
-      status: 'urgent',
-    };
+    return { daysLeft: 0, dailyQuota: remainingConcepts, status: 'today', remainingConcepts };
   }
 
-  const quota = Math.max(1, Math.ceil(conceptsNeedingWork / daysLeft));
+  const dailyQuota = Math.ceil(remainingConcepts / daysLeft);
   return {
     daysLeft,
-    conceptsNeedingWork,
-    dailyQuota: quota,
-    status: quota > 10 ? 'urgent' : 'on_track',
+    dailyQuota,
+    status: 'future',
+    remainingConcepts,
   };
 }

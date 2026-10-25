@@ -1,29 +1,44 @@
 /**
- * StudyQuest App (Phase 5)
- * Multi-Game Automatic Selection, Process Platformer, and Unified Level Sessions.
+ * StudyQuest App (Phase 7 Polished)
+ * Multi-Game Dungeon Learning Suite with Design System, Offline-Safe Demo Mode,
+ * Presenter Toolbar, Self-Check QA Suite, Master Sound Synthesizer, and Accessibility.
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Course,
   Level,
-  Question,
   LevelResult,
   StudyQuestProgress,
   Chapter,
   Concept,
-  LieHunterRound,
   GameChoice,
   LevelSegment,
+  RevisionSize,
+  RevisionPlan,
 } from './types/course.ts';
 import { UploadView } from './components/UploadView.tsx';
 import { ProcessingView } from './components/ProcessingView.tsx';
 import { CourseOverviewView } from './components/CourseOverviewView.tsx';
 import { WorldMapView } from './components/WorldMap/WorldMapView.tsx';
+import { DashboardView } from './components/Dashboard/DashboardView.tsx';
+import { RevisionBriefView } from './components/Revision/RevisionBriefView.tsx';
 import { LearnCardView } from './components/LearnCardView.tsx';
 import { QuestionLoadingView, SegmentStatusItem } from './components/QuestionLoadingView.tsx';
 import { GameView } from './components/GameView.tsx';
 import { ResultView } from './components/ResultView.tsx';
+import { SettingsModal } from './components/SettingsModal.tsx';
+import { WelcomeBanner } from './components/WelcomeBanner.tsx';
+import { HowItWorksModal } from './components/modals/HowItWorksModal.tsx';
+import { ShortcutsModal } from './components/modals/ShortcutsModal.tsx';
+import { PresenterToolbar } from './components/PresenterToolbar.tsx';
+import { QAModal } from './qa/QAModal.tsx';
+
+import { ErrorBoundary } from './components/common/ErrorBoundary.tsx';
+import { GameErrorBoundary } from './components/common/GameErrorBoundary.tsx';
+import { ConfirmDialog } from './components/common/ConfirmDialog.tsx';
+import { ToastProvider, useToast } from './components/common/ToastContext.tsx';
+
 import {
   loadCourseFromStorage,
   saveCourseToStorage,
@@ -33,7 +48,12 @@ import { startExtractionStream } from './services/courseApi.ts';
 import { buildLevels } from './services/levelBuilder.ts';
 import { clearAllQuestionCaches } from './services/questionService.ts';
 import { shuffleLieHunterStatements } from './services/lieHunterService.ts';
-import { loadProgress, recordLevelResult, clearProgress } from './services/progressService.ts';
+import {
+  loadProgress,
+  recordLevelResult,
+  clearProgress,
+  seedDemoProgress,
+} from './services/progressService.ts';
 import { shuffleQuestionsWithProgression } from './services/questionValidator.ts';
 import { GAME_REGISTRY } from './services/gameRegistry.ts';
 import {
@@ -41,19 +61,40 @@ import {
   generateLevelContent,
   clearAllLevelCaches,
 } from './services/levelSession.ts';
-import { Coins, Compass } from 'lucide-react';
+import { isDue } from './services/masteryModel.ts';
+import {
+  buildRevisionPlan,
+  buildRevisionPlanForConcept,
+} from './services/revisionPlanner.ts';
+import { runStorageMigrations } from './services/storageManager.ts';
+import { setupDemoMode } from './services/demoPackService.ts';
 
-type AppView =
+import {
+  Coins,
+  Compass,
+  BarChart2,
+  Settings,
+  HelpCircle,
+  Keyboard,
+  ShieldCheck,
+  Presentation,
+} from 'lucide-react';
+
+export type AppView =
   | 'upload'
   | 'processing'
   | 'course'
   | 'world-map'
+  | 'dashboard'
+  | 'revision-brief'
   | 'learn-card'
   | 'loading-questions'
   | 'game'
   | 'result';
 
-export default function App() {
+function StudyQuestApp() {
+  const { showToast, info, success } = useToast();
+
   const [currentView, setCurrentView] = useState<AppView>('upload');
   const [course, setCourse] = useState<Course | null>(null);
 
@@ -78,6 +119,18 @@ export default function App() {
     message: string;
     technical?: string;
   } | null>(null);
+  const [activeRevisionPlan, setActiveRevisionPlan] = useState<RevisionPlan | null>(null);
+
+  // Modals & Panels
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showHowItWorksModal, setShowHowItWorksModal] = useState(false);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [showQAModal, setShowQAModal] = useState(false);
+  const [showStartOverConfirm, setShowStartOverConfirm] = useState(false);
+  const [isPresenterMode, setIsPresenterMode] = useState(false);
+
+  // Live Screen Reader Announcement
+  const [ariaAnnouncement, setAriaAnnouncement] = useState('');
 
   // Keep last extraction payload to enable "Try again"
   const lastExtractionPayloadRef = useRef<{
@@ -86,9 +139,7 @@ export default function App() {
     fileName?: string;
   } | null>(null);
 
-  // Extraction AbortController
   const extractionAbortRef = useRef<AbortController | null>(null);
-  // Question generation AbortController
   const questionGenAbortRef = useRef<AbortController | null>(null);
 
   // Compute all levels from course at runtime
@@ -96,23 +147,108 @@ export default function App() {
     return course ? buildLevels(course) : [];
   }, [course]);
 
-  // Is current course the sample water cycle course?
-  const isSampleCourse = useMemo(() => {
-    return course?.sourceName === 'earth_science_water_cycle.pdf';
-  }, [course]);
+  // Number of concepts currently due for review
+  const dueCount = useMemo(() => {
+    if (!course) return 0;
+    let count = 0;
+    course.chapters.forEach((ch) => {
+      ch.concepts.forEach((c) => {
+        const cp = progress.concepts[c.id];
+        if (cp && isDue(cp)) count++;
+      });
+    });
+    return count;
+  }, [course, progress]);
 
-  // On mount: check localStorage for saved course
+  // Screen Reader view announcements
+  const announceView = useCallback((viewName: string) => {
+    setAriaAnnouncement(`Switched to ${viewName} screen`);
+  }, []);
+
+  // On mount: check storage, url params, setup demo/qa/presenter
   useEffect(() => {
+    runStorageMigrations();
+
+    // Check UI scale from storage
+    try {
+      const savedScale = localStorage.getItem('studyquest_ui_scale');
+      if (savedScale && savedScale !== 'normal') {
+        document.documentElement.setAttribute('data-ui-scale', savedScale);
+      }
+    } catch {}
+
+    const search = new URLSearchParams(window.location.search);
+
+    // QA Suite Flag
+    if (search.get('qa') === '1') {
+      setShowQAModal(true);
+    }
+
+    // Presenter Mode Flag
+    if (search.get('present') === '1') {
+      setIsPresenterMode(true);
+    }
+
+    // Demo Mode Flag (?demo=1 or ?demo=1&offline=1)
+    if (search.get('demo') === '1') {
+      const isOffline = search.get('offline') === '1';
+      const demoState = setupDemoMode(isOffline);
+      setCourse(demoState.course);
+      setProgress(demoState.progress);
+      setCurrentView('course');
+      info(
+        isOffline
+          ? 'Demo loaded in offline-safe mode.'
+          : 'Demo course loaded with interactive progress.'
+      );
+      return;
+    }
+
+    // Standard saved course load
     const saved = loadCourseFromStorage();
     if (saved) {
       setCourse(saved);
       setCurrentView('course');
     }
     setProgress(loadProgress());
-  }, []);
+  }, [info]);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      // '?' opens shortcuts
+      if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+        e.preventDefault();
+        setShowShortcutsModal((prev) => !prev);
+      }
+
+      // Ctrl+Shift+P or Cmd+Shift+P toggles presenter mode
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        setIsPresenterMode((prev) => {
+          const next = !prev;
+          info(next ? 'Presenter mode enabled' : 'Presenter mode exited');
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [info]);
 
   // ---------------------------------------------------------------------------
-  // Phase 1 Handlers: Extraction Flow
+  // Extraction Handlers
   // ---------------------------------------------------------------------------
 
   const handleStartExtraction = (payload: {
@@ -125,6 +261,7 @@ export default function App() {
     setProcessingStepLabel('Reading your PDF...');
     setProcessingStepIndex(0);
     setCurrentView('processing');
+    announceView('Processing');
 
     const controller = new AbortController();
     extractionAbortRef.current = controller;
@@ -139,11 +276,12 @@ export default function App() {
         onComplete: (extractedCourse) => {
           setCourse(extractedCourse);
           saveCourseToStorage(extractedCourse);
-          // Clear old progress & caches for a new course
           clearProgress();
           clearAllQuestionCaches();
           setProgress({ totalXp: 0, levels: {}, concepts: {} });
           setCurrentView('course');
+          announceView('Course Overview');
+          success('Course decomposed successfully into dungeon levels!');
         },
         onError: (userMessage, technical) => {
           setProcessingError({
@@ -163,6 +301,7 @@ export default function App() {
     }
     setProcessingError(null);
     setCurrentView('upload');
+    announceView('Upload');
   };
 
   const handleRetryExtraction = () => {
@@ -170,6 +309,7 @@ export default function App() {
       handleStartExtraction(lastExtractionPayloadRef.current);
     } else {
       setCurrentView('upload');
+      announceView('Upload');
     }
   };
 
@@ -180,9 +320,11 @@ export default function App() {
     clearAllQuestionCaches();
     setProgress({ totalXp: 0, levels: {}, concepts: {} });
     setCurrentView('course');
+    announceView('Course Overview');
+    success('Loaded Hydrologic Cycle sample course!');
   };
 
-  const handleStartOver = () => {
+  const handleConfirmStartOver = () => {
     clearCourseFromStorage();
     clearProgress();
     clearAllQuestionCaches();
@@ -192,16 +334,20 @@ export default function App() {
     setSegmentContents({});
     setLevelResult(null);
     setProgress({ totalXp: 0, levels: {}, concepts: {} });
+    setShowStartOverConfirm(false);
     setCurrentView('upload');
+    announceView('Upload');
+    info('Course and progress cleared.');
   };
 
   // ---------------------------------------------------------------------------
-  // Level & Game Play Flow (Phase 5 Automatic Multi-Segment Selection)
+  // Level & Gameplay Flow
   // ---------------------------------------------------------------------------
 
   const handleSelectLevel = (level: Level) => {
     setCurrentLevel(level);
     setCurrentView('learn-card');
+    announceView('Learn Card');
   };
 
   const handleStartLearning = () => {
@@ -227,14 +373,12 @@ export default function App() {
     setLastForceGame(forceGame);
     setQuestionLoadError(null);
 
-    // Build segments according to automatic game selection rules
     const segments = buildLevelSegments(
       levelToPlay,
       forceGame !== 'auto' ? { forceGame } : undefined
     );
     setCurrentSegments(segments);
 
-    // Initial status lines for loading screen
     const initialStatuses: SegmentStatusItem[] = segments.map((seg) => {
       const gEntry = GAME_REGISTRY[seg.gameId];
       return {
@@ -245,6 +389,7 @@ export default function App() {
     });
     setSegmentStatuses(initialStatuses);
     setCurrentView('loading-questions');
+    announceView('Loading Challenges');
 
     const controller = new AbortController();
     questionGenAbortRef.current = controller;
@@ -274,7 +419,6 @@ export default function App() {
         return;
       }
 
-      // Populate segment contents
       const contentsMap: Record<string, any> = {};
       result.segments.forEach((seg) => {
         contentsMap[seg.segmentId] = seg.content;
@@ -282,9 +426,9 @@ export default function App() {
 
       setSegmentContents(contentsMap);
       setCurrentView('game');
+      announceView('Game');
     } catch (err: any) {
       if (controller.signal.aborted) return;
-      console.error('Failed to load level content:', err);
       setQuestionLoadError({
         message: "We couldn't reach the AI service. Check your connection and try again.",
         technical: String(err?.message || err),
@@ -292,7 +436,6 @@ export default function App() {
     }
   };
 
-  // Launch a focused practice session for a single concept from World Map
   const handlePracticeConcept = (concept: Concept, chapter: Chapter) => {
     const practiceLevel: Level = {
       id: `practice-${concept.id}`,
@@ -306,13 +449,43 @@ export default function App() {
     handleStartGame(true, false, practiceLevel, 'auto');
   };
 
+  const handleStartSmartRevision = (size: RevisionSize = 'standard', practice = false) => {
+    if (!course) return;
+    const plan = buildRevisionPlan(course, progress, size);
+    setActiveRevisionPlan(plan);
+    setPracticeMode(practice);
+    setCurrentView('revision-brief');
+    announceView('Revision Brief');
+  };
+
+  const handleReviseSingleConcept = (concept: Concept, chapterId: string) => {
+    if (!course) return;
+    const plan = buildRevisionPlanForConcept(concept, chapterId, progress);
+    setActiveRevisionPlan(plan);
+    setPracticeMode(false);
+    setCurrentView('revision-brief');
+    announceView('Revision Brief');
+  };
+
+  const handleStartRevisionSession = (plan: RevisionPlan, practice = false) => {
+    setActiveRevisionPlan(plan);
+    setPracticeMode(practice);
+    handleStartGame(practice, false, plan.virtualLevel, 'auto');
+  };
+
+  const handlePlayLevel = (level: Level) => {
+    handleSelectLevel(level);
+  };
+
   const handleCancelQuestionLoading = () => {
     if (questionGenAbortRef.current) {
       questionGenAbortRef.current.abort();
       questionGenAbortRef.current = null;
     }
     setQuestionLoadError(null);
-    if (currentLevel?.id.startsWith('practice-')) {
+    if (currentLevel?.id.startsWith('rev-')) {
+      setCurrentView('revision-brief');
+    } else if (currentLevel?.id.startsWith('practice-')) {
       setCurrentView('world-map');
     } else {
       setCurrentView('learn-card');
@@ -323,16 +496,20 @@ export default function App() {
     handleStartGame(practiceMode, true, currentLevel || undefined, lastForceGame);
   };
 
-  // Game concludes (all segments finished or out of lives)
   const handleFinishGame = (result: LevelResult) => {
-    const updatedProgress = recordLevelResult(result);
+    const updatedProgress = recordLevelResult(result, course || undefined);
     setProgress(updatedProgress);
     setLevelResult(result);
     setCurrentView('result');
+    announceView('Level Results');
   };
 
-  // Replay current level: reshuffle cached questions/statements, new platform layouts, zero Gemini calls
   const handlePlayAgain = () => {
+    if (currentLevel?.id.startsWith('rev-')) {
+      handleStartSmartRevision('standard', practiceMode);
+      return;
+    }
+
     if (!currentLevel || currentSegments.length === 0) return;
 
     const reshuffledContents: Record<string, any> = {};
@@ -345,16 +522,15 @@ export default function App() {
       } else if (seg.gameId === 'lieHunter' && Array.isArray(orig)) {
         reshuffledContents[seg.id] = shuffleLieHunterStatements(orig);
       } else {
-        // Platformer creates fresh layout dynamically from rounds
         reshuffledContents[seg.id] = [...orig];
       }
     });
 
     setSegmentContents(reshuffledContents);
     setCurrentView('game');
+    announceView('Game');
   };
 
-  // Advance to next level if available
   const handleNextLevel = () => {
     if (!currentLevel) return;
     const currentIndex = allLevels.findIndex((lvl) => lvl.id === currentLevel.id);
@@ -363,6 +539,7 @@ export default function App() {
       handleSelectLevel(nextLvl);
     } else {
       setCurrentView('course');
+      announceView('Course Overview');
     }
   };
 
@@ -379,10 +556,20 @@ export default function App() {
 
   return (
     <div className="min-h-screen retro-grid-bg flex flex-col justify-between selection:bg-[#F5C542] selection:text-black">
-      {/* Top Banner Bar with XP Counter */}
+      {/* Skip to Main Content for Accessibility */}
+      <a href="#main-content" className="skip-link font-pixel text-xs">
+        Skip to main content
+      </a>
+
+      {/* Screen Reader ARIA Live Region */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {ariaAnnouncement}
+      </div>
+
+      {/* Top Banner Bar */}
       <header className="border-b border-[#1E2542] bg-[#0E1224]/90 backdrop-blur-xs sticky top-0 z-40 px-4 py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4 sm:gap-6">
+          <div className="flex items-center gap-3 sm:gap-6">
             <button
               type="button"
               onClick={() => {
@@ -390,6 +577,7 @@ export default function App() {
                 else setCurrentView('upload');
               }}
               className="flex items-center gap-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#F5C542] rounded px-1 cursor-pointer"
+              aria-label="StudyQuest Home"
             >
               <div className="w-2.5 h-2.5 bg-[#F5C542] rotate-45" />
               <span className="font-pixel text-xs sm:text-sm text-[#F5C542] tracking-wider">
@@ -399,10 +587,13 @@ export default function App() {
 
             {/* Top Navigation Tabs when course is active */}
             {course && (
-              <nav aria-label="Course views" className="flex items-center gap-1.5 sm:gap-2">
+              <nav aria-label="Course views" className="flex items-center gap-1 sm:gap-2">
                 <button
                   type="button"
-                  onClick={() => setCurrentView('course')}
+                  onClick={() => {
+                    setCurrentView('course');
+                    announceView('Overview');
+                  }}
                   className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
                     currentView === 'course'
                       ? 'bg-[#1D2545] text-[#F5C542] border border-[#F5C542]/40 shadow-xs'
@@ -413,7 +604,10 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCurrentView('world-map')}
+                  onClick={() => {
+                    setCurrentView('world-map');
+                    announceView('World Map');
+                  }}
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
                     currentView === 'world-map'
                       ? 'bg-[#1D2545] text-[#2DD4BF] border border-[#2DD4BF]/40 shadow-xs'
@@ -421,130 +615,406 @@ export default function App() {
                   }`}
                 >
                   <Compass className="w-3.5 h-3.5 text-[#2DD4BF]" aria-hidden="true" />
-                  <span>World Map</span>
+                  <span>Map</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentView('dashboard');
+                    announceView('Dashboard');
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
+                    currentView === 'dashboard'
+                      ? 'bg-[#1D2545] text-[#F5C542] border border-[#F5C542]/40 shadow-xs'
+                      : 'text-slate-400 hover:text-white hover:bg-[#141A33]'
+                  }`}
+                >
+                  <BarChart2 className="w-3.5 h-3.5 text-[#F5C542]" aria-hidden="true" />
+                  <span>Dashboard</span>
+                  {dueCount > 0 && (
+                    <span
+                      className="ml-0.5 px-1.5 py-0.2 bg-[#EF4444] text-white text-[10px] font-bold rounded-full"
+                      title={`${dueCount} concepts due for review`}
+                    >
+                      {dueCount}
+                    </span>
+                  )}
                 </button>
               </nav>
             )}
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-2.5">
             {/* Total XP Badge */}
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#141A33] border border-[#2B355E] text-xs font-mono text-[#F5C542] shadow-inner">
+            <button
+              type="button"
+              onClick={() => {
+                if (course) setCurrentView('dashboard');
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#141A33] border border-[#2B355E] text-xs font-mono text-[#F5C542] shadow-inner hover:border-[#F5C542]/60 transition-colors cursor-pointer"
+              title={course ? 'View Retention & Readiness Dashboard' : 'XP Earned'}
+            >
               <Coins className="w-3.5 h-3.5 text-[#F5C542]" aria-hidden="true" />
               <span className="font-bold">XP: {progress.totalXp}</span>
-            </div>
+            </button>
 
-            <span className="hidden sm:inline-block text-[11px] font-mono px-2 py-0.5 rounded bg-[#1A213D] text-[#2DD4BF] border border-[#2B355E]">
-              PHASE 5 · PROCESS PLATFORMER
-            </span>
+            {/* How It Works Help Button */}
+            <button
+              type="button"
+              onClick={() => setShowHowItWorksModal(true)}
+              className="p-1.5 rounded-lg bg-[#141A33] border border-[#2B355E] text-slate-400 hover:text-[#2DD4BF] hover:border-[#2DD4BF]/50 transition-colors cursor-pointer"
+              title="How StudyQuest Works"
+              aria-label="How StudyQuest Works"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+
+            {/* Keyboard Shortcuts Button */}
+            <button
+              type="button"
+              onClick={() => setShowShortcutsModal(true)}
+              className="p-1.5 rounded-lg bg-[#141A33] border border-[#2B355E] text-slate-400 hover:text-[#F5C542] hover:border-[#F5C542]/50 transition-colors cursor-pointer"
+              title="Keyboard Shortcuts (?)"
+              aria-label="Keyboard Shortcuts"
+            >
+              <Keyboard className="w-4 h-4" />
+            </button>
+
+            {/* Settings Button */}
+            <button
+              type="button"
+              onClick={() => setShowSettingsModal(true)}
+              className="p-1.5 rounded-lg bg-[#141A33] border border-[#2B355E] text-slate-400 hover:text-white hover:border-slate-400 transition-colors cursor-pointer"
+              title="Settings & Audio"
+              aria-label="Settings and Preferences"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+
+            {/* Presenter Toggle */}
+            <button
+              type="button"
+              onClick={() => setIsPresenterMode(!isPresenterMode)}
+              className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                isPresenterMode
+                  ? 'bg-[#F5C542] text-black border-[#F5C542]'
+                  : 'bg-[#141A33] border-[#2B355E] text-slate-400 hover:text-[#F5C542]'
+              }`}
+              title="Toggle Presenter Mode (Ctrl+Shift+P)"
+              aria-label="Toggle Presenter Mode"
+            >
+              <Presentation className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Main Screen Views */}
-      <main className="flex-1 flex flex-col justify-center py-4">
+      {/* Main Screen Views with id for skip link */}
+      <main id="main-content" className="flex-1 flex flex-col justify-center py-4" tabIndex={-1}>
+        {/* Welcome Banner on Overview or Upload */}
+        {(currentView === 'course' || currentView === 'upload') && (
+          <WelcomeBanner onOpenHowItWorks={() => setShowHowItWorksModal(true)} />
+        )}
+
         {/* VIEW A: Upload */}
         {currentView === 'upload' && (
-          <UploadView
-            onStartExtraction={handleStartExtraction}
-            onLoadSample={handleLoadSample}
-          />
+          <div className="view-transition">
+            <UploadView
+              onStartExtraction={handleStartExtraction}
+              onLoadSample={handleLoadSample}
+            />
+          </div>
         )}
 
         {/* VIEW B: PDF Extraction Processing */}
         {currentView === 'processing' && (
-          <ProcessingView
-            currentStepLabel={processingStepLabel}
-            currentStepIndex={processingStepIndex}
-            onCancel={handleCancelExtraction}
-            error={processingError}
-            onRetry={handleRetryExtraction}
-            onBackToUpload={handleCancelExtraction}
-          />
+          <div className="view-transition">
+            <ProcessingView
+              currentStepLabel={processingStepLabel}
+              currentStepIndex={processingStepIndex}
+              onCancel={handleCancelExtraction}
+              error={processingError}
+              onRetry={handleRetryExtraction}
+              onBackToUpload={handleCancelExtraction}
+            />
+          </div>
         )}
 
         {/* VIEW C: Course Overview */}
         {currentView === 'course' && course && (
-          <CourseOverviewView
-            course={course}
-            progress={progress}
-            onStartOver={handleStartOver}
-            onSelectLevel={handleSelectLevel}
-            onStartLearning={handleStartLearning}
-            onOpenWorldMap={() => setCurrentView('world-map')}
-          />
+          <div className="view-transition">
+            <CourseOverviewView
+              course={course}
+              progress={progress}
+              onStartOver={() => setShowStartOverConfirm(true)}
+              onSelectLevel={handleSelectLevel}
+              onStartLearning={handleStartLearning}
+              onOpenWorldMap={() => {
+                setCurrentView('world-map');
+                announceView('World Map');
+              }}
+              onOpenDashboard={() => {
+                setCurrentView('dashboard');
+                announceView('Dashboard');
+              }}
+              onStartRevision={() => handleStartSmartRevision('standard', false)}
+            />
+          </div>
         )}
 
         {/* VIEW C2: World Map & Mastery Realm */}
         {currentView === 'world-map' && course && (
-          <WorldMapView
-            course={course}
-            onBackToCourse={() => setCurrentView('course')}
-            onPracticeConcept={handlePracticeConcept}
-            onSelectLevel={handleSelectLevel}
-          />
+          <div className="view-transition">
+            <WorldMapView
+              course={course}
+              progress={progress}
+              onBackToCourse={() => {
+                setCurrentView('course');
+                announceView('Course Overview');
+              }}
+              onPracticeConcept={handlePracticeConcept}
+              onSelectLevel={handleSelectLevel}
+              onOpenDashboard={() => {
+                setCurrentView('dashboard');
+                announceView('Dashboard');
+              }}
+              onStartSmartRevision={() => handleStartSmartRevision('standard', false)}
+            />
+          </div>
+        )}
+
+        {/* VIEW C3: Phase 6 Dashboard */}
+        {currentView === 'dashboard' && course && (
+          <div className="view-transition">
+            <DashboardView
+              course={course}
+              progress={progress}
+              onBackToCourse={() => {
+                setCurrentView('course');
+                announceView('Course Overview');
+              }}
+              onOpenWorldMap={() => {
+                setCurrentView('world-map');
+                announceView('World Map');
+              }}
+              onStartSmartRevision={handleStartSmartRevision}
+              onReviseConcept={handleReviseSingleConcept}
+              onPlayLevel={handlePlayLevel}
+              onStartLearning={handleStartLearning}
+              onResetProgress={() => {
+                clearProgress();
+                setProgress(loadProgress());
+                info('Progress reset.');
+              }}
+              onSeedDemoProgress={() => {
+                seedDemoProgress(course);
+                setProgress(loadProgress());
+                success('Demo mastery records populated.');
+              }}
+              onClearAllProgress={() => {
+                clearProgress();
+                clearAllLevelCaches();
+                clearAllQuestionCaches();
+                setProgress(loadProgress());
+                info('All progress and caches cleared.');
+              }}
+            />
+          </div>
+        )}
+
+        {/* VIEW C4: Phase 6 Smart Revision Brief */}
+        {currentView === 'revision-brief' && activeRevisionPlan && (
+          <div className="view-transition">
+            <RevisionBriefView
+              plan={activeRevisionPlan}
+              onStartSession={handleStartRevisionSession}
+              onBackToDashboard={() => {
+                setCurrentView('dashboard');
+                announceView('Dashboard');
+              }}
+            />
+          </div>
         )}
 
         {/* VIEW D: Learn Card */}
         {currentView === 'learn-card' && currentLevel && (
-          <LearnCardView
-            level={currentLevel}
-            totalLevelsInChapter={totalLevelsInCurrentChapter}
-            onBackToCourse={() => setCurrentView('course')}
-            onStartGame={handleStartGame}
-          />
+          <div className="view-transition">
+            <LearnCardView
+              level={currentLevel}
+              totalLevelsInChapter={totalLevelsInCurrentChapter}
+              onBackToCourse={() => {
+                setCurrentView('course');
+                announceView('Course Overview');
+              }}
+              onStartGame={handleStartGame}
+            />
+          </div>
         )}
 
         {/* VIEW E: Loading Challenge */}
         {currentView === 'loading-questions' && (
-          <QuestionLoadingView
-            segmentStatuses={segmentStatuses}
-            onCancel={handleCancelQuestionLoading}
-            error={questionLoadError}
-            onRetry={handleRetryQuestionLoading}
-            onBackToCourse={() => setCurrentView('course')}
-            onPlayRunnerInstead={() =>
-              handleStartGame(practiceMode, false, currentLevel || undefined, 'runner')
-            }
-          />
+          <div className="view-transition">
+            <QuestionLoadingView
+              segmentStatuses={segmentStatuses}
+              onCancel={handleCancelQuestionLoading}
+              error={questionLoadError}
+              onRetry={handleRetryQuestionLoading}
+              onBackToCourse={() => {
+                setCurrentView('course');
+                announceView('Course Overview');
+              }}
+              onPlayRunnerInstead={() =>
+                handleStartGame(practiceMode, false, currentLevel || undefined, 'runner')
+              }
+            />
+          </div>
         )}
 
-        {/* VIEW F: Gameplay (Multi-Segment Session) */}
+        {/* VIEW F: Gameplay (Multi-Segment Session wrapped in GameErrorBoundary) */}
         {currentView === 'game' && currentLevel && (
-          <GameView
-            level={currentLevel}
-            segments={currentSegments}
-            segmentContents={segmentContents}
-            practiceMode={practiceMode}
-            onFinish={handleFinishGame}
-            onQuit={() => {
-              if (currentLevel.id.startsWith('practice-')) {
-                setCurrentView('world-map');
-              } else {
-                setCurrentView('course');
+          <div className="view-transition">
+            <GameErrorBoundary
+              onFallbackToRunner={() =>
+                handleStartGame(practiceMode, false, currentLevel, 'runner')
               }
-            }}
-          />
+              onQuit={() => {
+                if (currentLevel.id.startsWith('rev-')) {
+                  setCurrentView('dashboard');
+                } else if (currentLevel.id.startsWith('practice-')) {
+                  setCurrentView('world-map');
+                } else {
+                  setCurrentView('course');
+                }
+              }}
+            >
+              <GameView
+                level={currentLevel}
+                segments={currentSegments}
+                segmentContents={segmentContents}
+                practiceMode={practiceMode}
+                onFinish={handleFinishGame}
+                onQuit={() => {
+                  if (currentLevel.id.startsWith('rev-')) {
+                    setCurrentView('dashboard');
+                  } else if (currentLevel.id.startsWith('practice-')) {
+                    setCurrentView('world-map');
+                  } else {
+                    setCurrentView('course');
+                  }
+                }}
+              />
+            </GameErrorBoundary>
+          </div>
         )}
 
         {/* VIEW G: Result Screen */}
         {currentView === 'result' && levelResult && (
-          <ResultView
-            result={levelResult}
-            hasNextLevel={hasNextLevel}
-            onPlayAgain={handlePlayAgain}
-            onNextLevel={handleNextLevel}
-            onBackToCourse={() => setCurrentView('course')}
-            onReviewConcepts={() => setCurrentView('learn-card')}
-            onOpenWorldMap={() => setCurrentView('world-map')}
-          />
+          <div className="view-transition">
+            <ResultView
+              result={levelResult}
+              hasNextLevel={hasNextLevel}
+              onPlayAgain={handlePlayAgain}
+              onNextLevel={handleNextLevel}
+              onBackToCourse={() => {
+                setCurrentView('course');
+                announceView('Course Overview');
+              }}
+              onReviewConcepts={() => {
+                setCurrentView('learn-card');
+                announceView('Learn Card');
+              }}
+              onOpenWorldMap={() => {
+                setCurrentView('world-map');
+                announceView('World Map');
+              }}
+              onOpenDashboard={() => {
+                setCurrentView('dashboard');
+                announceView('Dashboard');
+              }}
+            />
+          </div>
         )}
       </main>
 
-      {/* Subtle Dungeon Footer */}
-      <footer className="border-t border-[#181E38] py-4 px-4 text-center text-xs text-slate-500 font-mono">
-        StudyQuest · Intelligent Course Decomposition & Multi-Game Challenge Suite
+      {/* Subtle Dungeon Footer with QA & Shortcuts Access */}
+      <footer className="border-t border-[#181E38] py-4 px-4 text-center text-xs text-slate-500 font-mono flex flex-col sm:flex-row items-center justify-between max-w-6xl mx-auto w-full gap-2">
+        <div>StudyQuest · Dungeon Learning Suite & Spaced Repetition Engine</div>
+        <div className="flex items-center gap-4 text-[11px]">
+          <button
+            type="button"
+            onClick={() => setShowShortcutsModal(true)}
+            className="hover:text-slate-300 transition-colors cursor-pointer"
+          >
+            Shortcuts (?)
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowQAModal(true)}
+            className="hover:text-[#2DD4BF] transition-colors cursor-pointer flex items-center gap-1"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-[#2DD4BF]" />
+            <span>QA Suite (?qa=1)</span>
+          </button>
+        </div>
       </footer>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        onResetAllProgress={() => {
+          clearProgress();
+          setProgress(loadProgress());
+        }}
+      />
+
+      {/* How It Works Modal */}
+      <HowItWorksModal
+        isOpen={showHowItWorksModal}
+        onClose={() => setShowHowItWorksModal(false)}
+      />
+
+      {/* Keyboard Shortcuts Modal */}
+      <ShortcutsModal
+        isOpen={showShortcutsModal}
+        onClose={() => setShowShortcutsModal(false)}
+      />
+
+      {/* QA Test Runner Modal */}
+      <QAModal isOpen={showQAModal} onClose={() => setShowQAModal(false)} />
+
+      {/* Start Over Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={showStartOverConfirm}
+        title="START OVER WITH A NEW COURSE?"
+        message="This will clear the current course structure and reset level records so you can upload or select new material."
+        confirmLabel="Start Over"
+        variant="danger"
+        onConfirm={handleConfirmStartOver}
+        onCancel={() => setShowStartOverConfirm(false)}
+      />
+
+      {/* Presenter Toolbar */}
+      {isPresenterMode && (
+        <PresenterToolbar
+          currentView={currentView}
+          onNavigate={(v) => {
+            setCurrentView(v);
+            announceView(v);
+          }}
+          onClose={() => setIsPresenterMode(false)}
+        />
+      )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <ToastProvider>
+        <StudyQuestApp />
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }

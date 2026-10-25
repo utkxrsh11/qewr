@@ -7,6 +7,7 @@ import { JourneysNode, RealmConfig } from './JourneysNode.tsx';
 import { JourneysSidebar } from './JourneysSidebar.tsx';
 import { ConceptDetailModal } from './ConceptDetailModal.tsx';
 import { buildLevels } from '../../services/levelBuilder.ts';
+import { MapLegend } from './MapLegend.tsx';
 import { X, Compass, ChevronLeft, MapPin, BarChart2, Sparkles } from 'lucide-react';
 
 interface WorldMapViewProps {
@@ -85,9 +86,12 @@ const DEFAULT_REALMS: RealmConfig[] = [
 
 export const WorldMapView: React.FC<WorldMapViewProps> = ({
   course,
+  progress,
   onBackToCourse,
   onPracticeConcept,
   onSelectLevel,
+  onOpenDashboard,
+  onStartSmartRevision,
 }) => {
   // Reactive subscription to mastery store
   useMastery();
@@ -135,8 +139,34 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
     setSelectedConceptInfo({ concept, chapter });
   };
 
+  // Calculate due count and played concepts
+  const { dueCount, hasPlayedAnything } = useMemo(() => {
+    let due = 0;
+    let played = 0;
+    const now = Date.now();
+    course.chapters.forEach((ch) => {
+      ch.concepts.forEach((c) => {
+        const p = progress?.concepts[c.id];
+        if (p && p.answered > 0) {
+          played++;
+          if (isDue(p, now)) due++;
+        }
+      });
+    });
+    return { dueCount: due, hasPlayedAnything: played > 0 };
+  }, [course, progress]);
+
   return (
     <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-3 sm:py-6 flex flex-col items-center">
+      {/* Due for Review Banner per Phase 6 Section 3 */}
+      <div className="w-full">
+        <DueBanner
+          dueCount={dueCount}
+          hasPlayedAnything={hasPlayedAnything}
+          onStartRevision={onStartSmartRevision || onOpenDashboard || (() => {})}
+        />
+      </div>
+
       {/* Outer RPG Journeys Modal Window */}
       <div
         className="w-full rounded-2xl sm:rounded-3xl border-2 border-[#1E273E] bg-[#080B13] shadow-[0_12px_50px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col"
@@ -165,11 +195,28 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             </div>
           </div>
 
-          {/* Top Center Title: "Journeys" */}
-          <div className="absolute left-1/2 -translate-x-1/2">
-            <h1 className="font-pixel text-base sm:text-lg text-white tracking-widest uppercase drop-shadow-md">
+          {/* Top Center Title: "Journeys" & Secondary Smart Revision Button per Section 7 */}
+          <div className="flex items-center gap-4">
+            <h1 className="font-pixel text-base sm:text-lg text-white tracking-widest uppercase drop-shadow-md hidden sm:block">
               Journeys
             </h1>
+
+            {onStartSmartRevision && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onStartSmartRevision}
+                  className="btn-pixel-dark px-3 py-1.5 rounded-lg text-xs font-mono text-amber-300 hover:text-white flex items-center gap-1.5 cursor-pointer"
+                  aria-label="Start smart revision session"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#F5C542]" />
+                  <span>Smart revision</span>
+                </button>
+                <span className="text-[11px] font-mono text-slate-400 hidden md:inline">
+                  {dueCount} due for review
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Top Right Close Button "✕" */}
@@ -283,6 +330,11 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({
             onInspectConcept={handleInspectConcept}
           />
         </div>
+      </div>
+
+      {/* Map Legend Overlay below window */}
+      <div className="mt-4 w-full flex justify-center">
+        <MapLegend />
       </div>
 
       {/* Concept Details Modal (When clicked from sidebar leaderboard) */}

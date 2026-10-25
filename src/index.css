@@ -3,19 +3,41 @@
 @layer base {
   :root {
     --bg-dungeon: #0B0D19;
-    --bg-card: #14182B;
-    --border-dungeon: #262D4A;
+    --bg-card: #12162B;
+    --bg-card-raised: #1A203C;
+    --border-dungeon: #232A47;
+    --border-bright: #384370;
+    --text-primary: #E2E8F0;
+    --text-muted: #94A3B8;
     --gold: #F5C542;
+    --gold-dim: #D9A422;
+    --gold-dark: #9E7410;
     --teal: #2DD4BF;
+    --teal-dim: #14B8A6;
+    --teal-dark: #0F766E;
     --red: #EF4444;
     --green: #22C55E;
     --purple: #C084FC;
+
+    --ui-scale-multiplier: 1;
+  }
+
+  [data-ui-scale="large"] {
+    --ui-scale-multiplier: 1.1;
+    font-size: 17px;
+  }
+
+  [data-ui-scale="xlarge"] {
+    --ui-scale-multiplier: 1.25;
+    font-size: 18px;
   }
 
   body {
-    background-color: #0B0D19;
-    color: #E2E8F0;
+    background-color: var(--bg-dungeon);
+    color: var(--text-primary);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
     min-height: 100vh;
   }
 }
@@ -23,6 +45,23 @@
 .font-pixel {
   font-family: 'Press Start 2P', monospace;
   letter-spacing: -0.05em;
+}
+
+/* Skip link for screen reader / keyboard accessibility */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 16px;
+  background: #F5C542;
+  color: #070913;
+  padding: 8px 16px;
+  font-weight: 700;
+  z-index: 9999;
+  border-radius: 4px;
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 16px;
 }
 
 /* Chunky retro game buttons */
@@ -155,6 +194,49 @@
   background: #384370;
 }
 
+/* Screen Transitions: 150ms-200ms fade + 8px slide */
+@keyframes viewEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.view-transition {
+  animation: viewEnter 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-box {
+  background: linear-gradient(
+    90deg,
+    #14182E 25%,
+    #232A4D 50%,
+    #14182E 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+
+/* Hide cursor when idle in presenter mode */
+body.hide-cursor {
+  cursor: none !important;
+}
+
 /* Lie Hunter Evidence Stamp Animation */
 @keyframes stamp {
   0% {
@@ -191,9 +273,21 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .view-transition {
+    animation: none !important;
+    transform: none !important;
+  }
+  .skeleton-box {
+    animation: none !important;
+    background: #1A203C !important;
+  }
   .animate-stamp {
     animation: fadeIn 0.1s ease-out forwards !important;
     transform: rotate(0deg) !important;
   }
 }
-

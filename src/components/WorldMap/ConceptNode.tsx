@@ -116,7 +116,8 @@ export const ConceptNode: React.FC<ConceptNodeProps> = ({
         {isDueForReview && (
           <span
             className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-amber-500 text-black border border-amber-300 flex items-center justify-center shadow animate-pulse z-30"
-            title="Due for spaced repetition review"
+            title="Due for review"
+            aria-label="Due for review"
           >
             <Clock className="w-3 h-3 text-black stroke-[3]" />
           </span>

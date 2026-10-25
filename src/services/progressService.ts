@@ -15,10 +15,19 @@ import {
   ConceptType,
 } from '../types/course.ts';
 import { recordAnswer } from './masteryStore.ts';
-import { intervalDays, strength, getNow } from './masteryModel.ts';
-import { recordSessionStatsAndActivity, saveStats, saveActivity, clearStatsAndActivity, getIsoDateKey } from './statsService.ts';
+import { intervalDays, strength, getNow, calculateNextDueAt, readiness } from './masteryModel.ts';
+import {
+  recordSessionStatsAndActivity,
+  saveStats,
+  saveActivity,
+  clearStatsAndActivity,
+  getIsoDateKey,
+} from './statsService.ts';
+import { clearExamInfo } from './examService.ts';
 
 const PROGRESS_STORAGE_KEY = 'studyquest_progress';
+const BANNER_DISMISSED_KEY = 'studyquest_banner_dismissed';
+const REVISION_SIZE_KEY = 'studyquest_revision_size';
 
 const DEFAULT_PROGRESS: StudyQuestProgress = {
   totalXp: 0,
@@ -50,10 +59,17 @@ export function saveProgress(progress: StudyQuestProgress): void {
   }
 }
 
+/**
+ * Clears progress, stats, activity, exam date, and banner dismissal.
+ * Keeps the course and cached challenge content intact per Section 4.8 and 8.
+ */
 export function clearProgress(): void {
   try {
     localStorage.removeItem(PROGRESS_STORAGE_KEY);
+    localStorage.removeItem(BANNER_DISMISSED_KEY);
+    localStorage.removeItem(REVISION_SIZE_KEY);
     clearStatsAndActivity();
+    clearExamInfo();
   } catch (err) {
     console.warn('Failed to clear studyquest_progress:', err);
   }
@@ -61,7 +77,7 @@ export function clearProgress(): void {
 
 /**
  * Calculates XP earned from a level result:
- * - Revision session: 10 XP per correct answer + 30 XP completion bonus.
+ * - Revision session: 10 XP per first-try-correct item + 20 XP completion bonus when session accuracy >= 40%.
  * - Standard level: 10 XP per correct answer, + 50 XP bonus for >= 1 star, + 20 XP bonus for 3 stars.
  * - Practice mode: 0 XP.
  */
@@ -70,11 +86,15 @@ export function calculateXpEarned(result: {
   correctCount: number;
   stars: number;
   isRevision?: boolean;
+  accuracyPercent?: number;
 }): number {
   if (result.practiceMode) return 0;
 
   if (result.isRevision) {
-    return result.correctCount * 10 + 30;
+    // Phase 6 Section 6: 10 XP per item + 20 XP completion bonus when session accuracy >= 40%
+    const acc = result.accuracyPercent ?? (result.stars >= 1 ? 50 : 0);
+    const bonus = acc >= 40 ? 20 : 0;
+    return result.correctCount * 10 + bonus;
   }
 
   let xp = result.correctCount * 10;
@@ -94,7 +114,10 @@ export function calculateXpEarned(result: {
  * 1 star: 40% to 69%
  * 0 stars: below 40% or out of lives
  */
-export function calculateStars(accuracyPercent: number, status: 'completed' | 'out_of_lives'): number {
+export function calculateStars(
+  accuracyPercent: number,
+  status: 'completed' | 'out_of_lives'
+): number {
   if (status === 'out_of_lives' || accuracyPercent < 40) {
     return 0;
   }
@@ -108,9 +131,13 @@ export function calculateStars(accuracyPercent: number, status: 'completed' | 'o
 }
 
 /**
- * Updates progress with a completed level result and persists to localStorage.
+ * Updates progress with a completed level or revision result and persists to localStorage.
+ * Practice mode saves nothing.
  */
-export function recordLevelResult(result: LevelResult): StudyQuestProgress {
+export function recordLevelResult(
+  result: LevelResult,
+  course?: Course
+): StudyQuestProgress {
   const current = loadProgress();
 
   if (result.practiceMode) {
@@ -124,8 +151,18 @@ export function recordLevelResult(result: LevelResult): StudyQuestProgress {
 
   const isRevisionSession = Boolean(result.isRevision || result.level?.isRevision);
 
-  // Update level progress (only for regular curriculum levels, not revision virtual levels)
-  if (!isRevisionSession && !result.levelId.startsWith('rev-') && !result.levelId.startsWith('practice-')) {
+  // Compute course readiness before session if course is available
+  let readinessBefore = 0;
+  if (course && isRevisionSession) {
+    readinessBefore = readiness(course, current, nowMs).score;
+  }
+
+  // Update curriculum level progress (only for regular curriculum levels)
+  if (
+    !isRevisionSession &&
+    !result.levelId.startsWith('rev-') &&
+    !result.levelId.startsWith('practice-')
+  ) {
     const existingLevel = current.levels[result.levelId] || {
       bestStars: 0,
       bestScore: 0,
@@ -151,7 +188,7 @@ export function recordLevelResult(result: LevelResult): StudyQuestProgress {
     });
   }
 
-  // Group session answers by conceptId to compute session concept accuracy
+  // Group session answers by conceptId
   const sessionConceptAnswers = new Map<string, boolean[]>();
   result.answers.forEach((ans: any) => {
     const list = sessionConceptAnswers.get(ans.conceptId) || [];
@@ -178,14 +215,14 @@ export function recordLevelResult(result: LevelResult): StudyQuestProgress {
     const sessionTotal = answersList.length;
     const sessionAccuracy = sessionTotal > 0 ? sessionCorrect / sessionTotal : 0;
 
-    // Update recent 6 answers array (1 for correct, 0 for wrong)
+    // Push this session's first-try results, keep the last 6
     const existingRecent = Array.isArray(existing.recent) ? [...existing.recent] : [];
     answersList.forEach((isCorrect) => {
       existingRecent.push(isCorrect ? 1 : 0);
     });
     const recent = existingRecent.slice(-6);
 
-    // Update reviewStreak: >= 80% increments streak, < 80% resets to 0
+    // Section 2.3: session accuracy for that concept at least 80% = +1, otherwise 0
     let reviewStreak = existing.reviewStreak || 0;
     if (sessionAccuracy >= 0.8) {
       reviewStreak += 1;
@@ -193,29 +230,32 @@ export function recordLevelResult(result: LevelResult): StudyQuestProgress {
       reviewStreak = 0;
     }
 
-    // Calculate dueAt date from intervalDays
-    const nextIntervalDays = intervalDays({ ...existing, reviewStreak });
-    const nextDueMs = nowMs + nextIntervalDays * 86400 * 1000;
-    const dueAt = new Date(nextDueMs).toISOString();
-
-    const revisions = (existing.revisions || 0) + (isRevisionSession ? 1 : 0);
-
-    // Identify last game played for this concept in this session
-    const lastAnswerForConcept = [...result.answers].reverse().find((a: any) => a.conceptId === conceptId);
+    // Identify last game played
+    const lastAnswerForConcept = [...result.answers]
+      .reverse()
+      .find((a: any) => a.conceptId === conceptId);
     const gameId: GameChoice = lastAnswerForConcept?.gameId || result.gameId || 'runner';
     const existingGames = Array.isArray(existing.gamesPlayed) ? existing.gamesPlayed : [];
     const gamesPlayed = Array.from(new Set([...existingGames, gameId]));
 
-    current.concepts[conceptId] = {
+    const tempConcept: ConceptProgress = {
       ...existing,
       answered: (existing.answered || 0) + sessionTotal,
       correct: (existing.correct || 0) + sessionCorrect,
-      lastResult: answersList[answersList.length - 1] ? 'correct' : 'wrong',
-      lastPlayed: nowIso,
-      lastGame: gameId,
-      gamesPlayed,
       recent,
       reviewStreak,
+      lastPlayed: nowIso,
+    };
+
+    // dueAt after a session = lastPlayed + intervalDays
+    const dueAt = calculateNextDueAt(tempConcept, nowIso);
+    const revisions = (existing.revisions || 0) + (isRevisionSession ? 1 : 0);
+
+    current.concepts[conceptId] = {
+      ...tempConcept,
+      lastResult: answersList[answersList.length - 1] ? 'correct' : 'wrong',
+      lastGame: gameId,
+      gamesPlayed,
       dueAt,
       revisions,
     };
@@ -249,6 +289,13 @@ export function recordLevelResult(result: LevelResult): StudyQuestProgress {
       });
     });
     result.strengthChanges = strengthChanges;
+
+    // Attach overall course readiness before and after
+    if (course) {
+      const readinessAfter = readiness(course, current, nowMs).score;
+      (result as any).readinessBefore = readinessBefore;
+      (result as any).readinessAfter = readinessAfter;
+    }
   }
 
   // Record stats and activity
@@ -272,23 +319,62 @@ export function recordLevelResult(result: LevelResult): StudyQuestProgress {
 }
 
 /**
- * Exports all progress as a downloadable JSON blob.
+ * Downloads studyquest-report.json with course title, date, readiness, coverage,
+ * per-chapter counts, per-concept strength and state, and stats (Section 4.8).
  */
-export function exportProgressJson(): void {
+export function downloadProgressReport(course: Course, progress: StudyQuestProgress): void {
   try {
-    const progress = loadProgress();
-    const jsonStr = JSON.stringify(progress, null, 2);
+    const nowMs = getNow();
+    const readinessInfo = readiness(course, progress, nowMs);
+
+    const chaptersReport = (course.chapters || []).map((ch) => {
+      const conceptsReport = (ch.concepts || []).map((c) => {
+        const p = progress.concepts[c.id];
+        return {
+          id: c.id,
+          name: c.name,
+          type: c.type,
+          page: c.page,
+          answered: p?.answered || 0,
+          correct: p?.correct || 0,
+          strength: Math.round(strength(p, nowMs) * 100) / 100,
+          state: (p?.answered || 0) > 0 ? (strength(p, nowMs) >= 0.8 ? 'mastered' : strength(p, nowMs) >= 0.5 ? 'shaky' : 'weak') : 'untouched',
+          reviewStreak: p?.reviewStreak || 0,
+          dueAt: p?.dueAt || null,
+        };
+      });
+
+      return {
+        chapterId: ch.id,
+        title: ch.title,
+        pageRange: `${ch.pageStart}-${ch.pageEnd}`,
+        concepts: conceptsReport,
+      };
+    });
+
+    const report = {
+      courseTitle: course.courseTitle,
+      sourceName: course.sourceName,
+      generatedAt: new Date().toISOString(),
+      readiness: readinessInfo.score,
+      coverage: Math.round(readinessInfo.coverage * 100),
+      counts: readinessInfo.counts,
+      totalXp: progress.totalXp,
+      chapters: chaptersReport,
+    };
+
+    const jsonStr = JSON.stringify(report, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `studyquest-progress-${getIsoDateKey()}.json`;
+    a.download = 'studyquest-report.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch (err) {
-    console.error('Failed to export progress JSON:', err);
+    console.error('Failed to export progress report JSON:', err);
   }
 }
 
@@ -392,35 +478,36 @@ export function seedDemoProgress(course: Course): StudyQuestProgress {
 
   // Seed stats
   saveStats({
-    byGame: {
-      runner: { played: 14, correct: 12, totalItems: 14 },
-      lieHunter: { played: 8, correct: 6, totalItems: 8 },
-      platformer: { played: 6, correct: 4, totalItems: 6 },
+    games: {
+      runner: { answered: 14, correct: 12 },
+      lieHunter: { answered: 8, correct: 6 },
+      platformer: { answered: 6, correct: 4 },
     },
-    byType: {
-      fact: { played: 12, correct: 10, totalItems: 12 },
-      process: { played: 10, correct: 7, totalItems: 10 },
-      detail: { played: 6, correct: 5, totalItems: 6 },
+    types: {
+      fact: { answered: 12, correct: 10 },
+      process: { answered: 10, correct: 7 },
+      detail: { answered: 6, correct: 5 },
     },
     lastUpdated: new Date().toISOString(),
   });
 
-  // Seed 14 days activity
-  const activityHistory: Record<string, any> = {};
+  // Seed 14 days activity with a 5-day streak
+  const activityDays: Record<string, any> = {};
   for (let i = 13; i >= 0; i--) {
     const d = new Date(now - i * 86400000);
     const key = getIsoDateKey(d);
-    // Alternate some active and lighter days
-    const active = i % 2 === 0 || i === 1 || i === 0;
-    activityHistory[key] = {
+    // 5-day streak: days 0, 1, 2, 3, 4 are active
+    const inStreak = i <= 4;
+    const active = inStreak || i === 7 || i === 9 || i === 11;
+    activityDays[key] = {
       date: key,
-      itemsAnswered: active ? 4 + (i % 5) * 2 : 0,
-      correctCount: active ? 3 + (i % 4) * 2 : 0,
-      xpEarned: active ? 60 + (i % 3) * 40 : 0,
-      sessionsCount: active ? 1 + (i % 2) : 0,
+      answered: active ? 4 + (i % 3) * 2 : 0,
+      correct: active ? 3 + (i % 2) * 2 : 0,
+      xp: active ? 50 + (i % 3) * 30 : 0,
+      sessions: active ? 1 + (i % 2) : 0,
     };
   }
-  saveActivity({ history: activityHistory });
+  saveActivity({ days: activityDays });
 
   return demo;
 }

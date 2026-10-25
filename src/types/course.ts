@@ -313,8 +313,25 @@ export interface StudyQuestProgress {
 
 export type MasteryState = 'untouched' | 'mastered' | 'shaky' | 'weak';
 
+export type RevisionSize = 'quick' | 'standard' | 'deep';
+
+export interface ReadinessCounts {
+  mastered: number;
+  shaky: number;
+  weak: number;
+  untouched: number;
+  total: number;
+  due: number;
+}
+
+export interface ReadinessResult {
+  score: number; // 0..100
+  coverage: number; // 0..1 (concepts answered > 0 / total)
+  counts: ReadinessCounts;
+}
+
 export interface ReadinessBand {
-  label: 'Not ready' | 'In progress' | 'Looking good' | 'Exam ready!';
+  label: 'Just starting' | 'Getting there' | 'Almost exam ready' | 'Exam ready';
   color: 'red' | 'amber' | 'blue' | 'emerald';
   description: string;
 }
@@ -331,6 +348,7 @@ export interface ConceptReviewCandidate {
   priority: number;
   reason: string;
   suggestedGame: GameChoice;
+  isNew?: boolean; // For untouched concepts added for coverage
 }
 
 export interface RevisionPlan {
@@ -339,36 +357,52 @@ export interface RevisionPlan {
   candidates: ConceptReviewCandidate[];
   virtualLevel: Level;
   expectedSegments: number;
+  size: RevisionSize | 'custom';
 }
 
 export interface GameStatRecord {
-  played: number;
+  answered: number;
   correct: number;
-  totalItems: number;
+  played?: number; // alias for backwards compatibility
+  totalItems?: number; // alias for backwards compatibility
+}
+
+export interface TypeStatRecord {
+  answered: number;
+  correct: number;
+  played?: number; // alias
+  totalItems?: number; // alias
 }
 
 export interface StudyQuestStats {
-  byGame: Record<GameChoice, GameStatRecord>;
-  byType: Record<ConceptType, GameStatRecord>;
-  lastUpdated: string;
+  games: Record<GameChoice, GameStatRecord>;
+  types: Record<ConceptType, TypeStatRecord>;
+  // For backwards compatibility
+  byGame?: Record<GameChoice, GameStatRecord>;
+  byType?: Record<ConceptType, TypeStatRecord>;
+  lastUpdated?: string;
 }
 
 export interface ActivityDayRecord {
   date: string; // YYYY-MM-DD
-  itemsAnswered: number;
-  correctCount: number;
-  xpEarned: number;
-  sessionsCount: number;
+  answered: number;
+  correct: number;
+  xp: number;
+  sessions: number;
+  // Aliases for backwards compatibility
+  itemsAnswered?: number;
+  correctCount?: number;
+  xpEarned?: number;
+  sessionsCount?: number;
 }
 
 export interface StudyQuestActivity {
-  history: Record<string, ActivityDayRecord>; // key: YYYY-MM-DD
+  days: Record<string, ActivityDayRecord>; // key: YYYY-MM-DD
+  history?: Record<string, ActivityDayRecord>; // alias
 }
 
 export interface ExamInfo {
-  examDate?: string; // YYYY-MM-DD
-  targetReadiness?: number; // e.g. 85 (%)
+  date?: string; // YYYY-MM-DD
+  examDate?: string; // alias
+  targetReadiness?: number;
 }
-
-
-

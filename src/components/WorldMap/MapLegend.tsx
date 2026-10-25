@@ -1,9 +1,9 @@
 import React from 'react';
-import { ShieldAlert, BookOpen, Crown, HelpCircle } from 'lucide-react';
+import { Clock } from 'lucide-react';
 
 export const MapLegend: React.FC = () => {
   return (
-    <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 px-4 py-2.5 bg-[#0C1021]/80 backdrop-blur-xs border border-[#202947] rounded-xl text-xs font-mono text-slate-300 shadow-md">
+    <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-6 px-4 py-2 bg-[#0C1021]/90 backdrop-blur-xs border border-[#202947] rounded-xl text-xs font-mono text-slate-300 shadow-md">
       <div className="flex items-center gap-1.5">
         <span className="w-3.5 h-3.5 rounded-full bg-[#1F2538] border-2 border-slate-500 inline-block shadow-inner" />
         <span className="text-slate-400">Unexplored</span>
@@ -22,6 +22,14 @@ export const MapLegend: React.FC = () => {
       <div className="flex items-center gap-1.5">
         <span className="w-3.5 h-3.5 rounded-full bg-emerald-950/80 border-2 border-emerald-400 inline-block shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
         <span className="text-emerald-300 font-medium">Mastered (≥75%)</span>
+      </div>
+
+      {/* Clock icon legend addition per Phase 6 Section 7 */}
+      <div className="flex items-center gap-1.5">
+        <span className="w-4 h-4 rounded-full bg-amber-500/20 border border-amber-500 flex items-center justify-center">
+          <Clock className="w-2.5 h-2.5 text-amber-400" />
+        </span>
+        <span className="text-amber-300 font-medium">Due for review</span>
       </div>
     </div>
   );

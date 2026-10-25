@@ -1,61 +1,66 @@
-import React from 'react';
-import { ReadinessBand, ExamInfo } from '../../types/course.ts';
+import React, { useState } from 'react';
+import { ReadinessBand, ReadinessCounts } from '../../types/course.ts';
 import {
   Trophy,
   Crown,
-  Clock,
-  Calendar,
-  Zap,
-  Target,
-  AlertCircle,
-  HelpCircle,
-  ChevronRight,
+  Info,
   Flame,
+  Layers,
+  CheckCircle2,
+  X,
+  Target,
 } from 'lucide-react';
 
 interface SummaryCardsProps {
   readinessScore: number;
   readinessBand: ReadinessBand;
-  counts: {
-    total: number;
-    mastered: number;
-    shaky: number;
-    weak: number;
-    untouched: number;
-    due: number;
-  };
+  coverageRatio: number; // 0..1
+  counts: ReadinessCounts;
   totalXp: number;
-  levelsCompleted: number;
-  totalLevels: number;
-  examQuota: {
-    daysLeft: number | null;
-    dailyQuota: number;
-    status: string;
-  };
-  examInfo: ExamInfo;
-  onOpenExamModal: () => void;
-  onStartRevision: () => void;
+  dayStreak: number;
 }
+
+const RANKS = [
+  { name: 'Rookie', minXp: 0, maxXp: 150 },
+  { name: 'Adventurer', minXp: 150, maxXp: 400 },
+  { name: 'Knight', minXp: 400, maxXp: 800 },
+  { name: 'Champion', minXp: 800, maxXp: 1500 },
+  { name: 'Legend', minXp: 1500, maxXp: Infinity },
+];
 
 export const SummaryCards: React.FC<SummaryCardsProps> = ({
   readinessScore,
   readinessBand,
+  coverageRatio,
   counts,
   totalXp,
-  levelsCompleted,
-  totalLevels,
-  examQuota,
-  examInfo,
-  onOpenExamModal,
-  onStartRevision,
+  dayStreak,
 }) => {
-  // SVG circular gauge calculation
-  const radius = 38;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (readinessScore / 100) * circumference;
+  const [showInfoPopover, setShowInfoPopover] = useState(false);
+
+  // Compute rank and progress to next rank
+  const currentRankIndex = RANKS.findIndex(
+    (r, idx) =>
+      totalXp >= r.minXp && (idx === RANKS.length - 1 || totalXp < RANKS[idx + 1].minXp)
+  );
+  const currentRank = RANKS[currentRankIndex >= 0 ? currentRankIndex : 0];
+  const nextRank =
+    currentRankIndex < RANKS.length - 1 ? RANKS[currentRankIndex + 1] : null;
+
+  let rankProgress = 100;
+  let xpToNext = 0;
+  if (nextRank) {
+    const range = nextRank.minXp - currentRank.minXp;
+    const progressInRank = totalXp - currentRank.minXp;
+    rankProgress = Math.min(100, Math.max(0, Math.round((progressInRank / range) * 100)));
+    xpToNext = nextRank.minXp - totalXp;
+  }
+
+  const coveragePercent = Math.round(coverageRatio * 100);
+  const playedConcepts = counts.total - counts.untouched;
 
   let bandColorClass = 'text-amber-400 border-amber-500/40 bg-amber-500/10';
-  let ringColor = '#F59E0B'; // amber
+  let ringColor = '#F59E0B';
   if (readinessBand.color === 'emerald') {
     bandColorClass = 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10';
     ringColor = '#10B981';
@@ -67,215 +72,201 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({
     ringColor = '#EF4444';
   }
 
+  // Circular gauge
+  const radius = 34;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (readinessScore / 100) * circumference;
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      {/* 1. Exam Readiness Score Gauge */}
-      <div className="rounded-2xl border-2 border-[#242D52] bg-[#12162B] p-5 shadow-lg flex flex-col justify-between relative overflow-hidden group hover:border-[#38467D] transition-colors">
-        <div className="flex items-center justify-between mb-3">
-          <span className="font-pixel text-[10px] text-slate-400 tracking-wider uppercase">
-            Exam Readiness
-          </span>
-          <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${bandColorClass}`}>
-            {readinessBand.label}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-4 my-2">
-          {/* Circular SVG Ring */}
-          <div className="relative w-22 h-22 shrink-0 flex items-center justify-center">
-            <svg className="w-full h-full -rotate-90" viewBox="0 0 90 90">
-              <circle
-                cx="45"
-                cy="45"
-                r={radius}
-                className="text-[#1D2545]"
-                strokeWidth="8"
-                stroke="currentColor"
-                fill="transparent"
-              />
-              <circle
-                cx="45"
-                cy="45"
-                r={radius}
-                stroke={ringColor}
-                strokeWidth="8"
-                strokeDasharray={circumference}
-                strokeDashoffset={strokeDashoffset}
-                strokeLinecap="round"
-                fill="transparent"
-                style={{ transition: 'stroke-dashoffset 0.8s ease-in-out' }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="font-pixel text-lg text-white font-bold">
-                {readinessScore}%
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4 mb-6">
+      {/* 1. Exam Readiness Card */}
+      <div className="rounded-2xl border-2 border-[#242D52] bg-[#12162B] p-4 sm:p-5 shadow-lg flex flex-col justify-between relative overflow-hidden group hover:border-[#38467D] transition-colors">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <span className="font-pixel text-[10px] text-slate-400 tracking-wider uppercase">
+                Readiness
               </span>
+              <button
+                type="button"
+                onClick={() => setShowInfoPopover((prev) => !prev)}
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+                aria-label="About readiness formula"
+              >
+                <Info className="w-3.5 h-3.5" />
+              </button>
             </div>
-          </div>
-
-          <div className="flex-1">
-            <p className="text-xs text-slate-300 leading-relaxed">
-              {readinessBand.description}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-2 text-[10px] font-mono text-slate-400 border-t border-[#1C2342] pt-2 flex items-center justify-between">
-          <span>Target: {examInfo.targetReadiness || 85}%</span>
-          <span>{counts.total} concepts total</span>
-        </div>
-      </div>
-
-      {/* 2. Concept Mastery Breakdown */}
-      <div className="rounded-2xl border-2 border-[#242D52] bg-[#12162B] p-5 shadow-lg flex flex-col justify-between hover:border-[#38467D] transition-colors">
-        <div className="flex items-center justify-between mb-2">
-          <span className="font-pixel text-[10px] text-slate-400 tracking-wider uppercase">
-            Mastery Breakdown
-          </span>
-          <Crown className="w-4 h-4 text-emerald-400" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-2.5 my-1">
-          <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-800/40 flex items-center gap-2.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-            <div>
-              <div className="font-pixel text-sm text-emerald-300">{counts.mastered}</div>
-              <div className="text-[10px] font-mono text-slate-400">Mastered</div>
-            </div>
-          </div>
-
-          <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-800/40 flex items-center gap-2.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-            <div>
-              <div className="font-pixel text-sm text-amber-300">{counts.shaky}</div>
-              <div className="text-[10px] font-mono text-slate-400">Shaky</div>
-            </div>
-          </div>
-
-          <div className="p-2.5 rounded-xl bg-red-950/40 border border-red-800/40 flex items-center gap-2.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
-            <div>
-              <div className="font-pixel text-sm text-red-300">{counts.weak}</div>
-              <div className="text-[10px] font-mono text-slate-400">Weak</div>
-            </div>
-          </div>
-
-          <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center gap-2.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-slate-500" />
-            <div>
-              <div className="font-pixel text-sm text-slate-300">{counts.untouched}</div>
-              <div className="text-[10px] font-mono text-slate-400">Untouched</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-2 text-[10px] font-mono text-slate-400 border-t border-[#1C2342] pt-2 flex items-center justify-between">
-          <span>Mastery: {counts.total > 0 ? Math.round((counts.mastered / counts.total) * 100) : 0}%</span>
-          <span>Coverage: {counts.total > 0 ? Math.round(((counts.total - counts.untouched) / counts.total) * 100) : 0}%</span>
-        </div>
-      </div>
-
-      {/* 3. Due For Review (Spaced Repetition) */}
-      <div
-        className={`rounded-2xl border-2 p-5 shadow-lg flex flex-col justify-between transition-colors ${
-          counts.due > 0
-            ? 'border-amber-500/40 bg-gradient-to-b from-amber-950/30 to-[#12162B]'
-            : 'border-[#242D52] bg-[#12162B] hover:border-[#38467D]'
-        }`}
-      >
-        <div className="flex items-center justify-between mb-2">
-          <span className="font-pixel text-[10px] text-slate-400 tracking-wider uppercase">
-            Review Queue
-          </span>
-          <Clock className={`w-4 h-4 ${counts.due > 0 ? 'text-amber-400 animate-pulse' : 'text-slate-400'}`} />
-        </div>
-
-        <div className="my-2">
-          <div className="flex items-baseline gap-2">
-            <span className="font-pixel text-2xl text-white font-bold">
-              {counts.due}
-            </span>
-            <span className="text-xs font-mono text-slate-400">
-              {counts.due === 1 ? 'concept due' : 'concepts due'}
+            <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${bandColorClass}`}>
+              {readinessBand.label}
             </span>
           </div>
 
-          <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-            {counts.due > 0
-              ? 'These concepts are decaying. Revise now to maintain retention.'
-              : 'All caught up! No concepts are currently due for spaced review.'}
+          {/* Info Popover */}
+          {showInfoPopover && (
+            <div
+              role="tooltip"
+              className="absolute inset-x-3 top-10 z-20 p-3 rounded-xl bg-[#18203E] border border-cyan-500/50 shadow-2xl text-xs text-slate-200 animate-in fade-in duration-150"
+            >
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <span className="font-bold text-cyan-300">Readiness Score</span>
+                <button
+                  type="button"
+                  onClick={() => setShowInfoPopover(false)}
+                  className="text-slate-400 hover:text-white"
+                  aria-label="Close"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-[11px] leading-relaxed text-slate-300">
+                Readiness is the average strength of all concepts. Strength drops a little if you
+                don't review a concept for a while.
+              </p>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 my-2">
+            <div className="relative w-18 h-18 shrink-0 flex items-center justify-center">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 80 80">
+                <circle
+                  cx="40"
+                  cy="40"
+                  r={radius}
+                  className="text-[#1A223D]"
+                  strokeWidth="8"
+                  stroke="currentColor"
+                  fill="transparent"
+                />
+                <circle
+                  cx="40"
+                  cy="40"
+                  r={radius}
+                  stroke={ringColor}
+                  strokeWidth="8"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={strokeDashoffset}
+                  strokeLinecap="round"
+                  fill="transparent"
+                  className="transition-all duration-500"
+                />
+              </svg>
+              <span className="absolute font-pixel text-sm text-white">{readinessScore}%</span>
+            </div>
+            <div>
+              <p className="text-xs text-slate-300 leading-snug">{readinessBand.description}</p>
+            </div>
+          </div>
+        </div>
+
+        {coveragePercent < 50 && (
+          <p className="text-[10px] font-mono text-amber-300/90 pt-1 border-t border-[#1C2548]">
+            Based on only {coveragePercent}% of your material so far.
+          </p>
+        )}
+      </div>
+
+      {/* 2. Coverage Card */}
+      <div className="rounded-2xl border-2 border-[#242D52] bg-[#12162B] p-4 sm:p-5 shadow-lg flex flex-col justify-between hover:border-[#38467D] transition-colors">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-pixel text-[10px] text-slate-400 tracking-wider uppercase">
+              Coverage
+            </span>
+            <Layers className="w-4 h-4 text-cyan-400" />
+          </div>
+          <div className="font-pixel text-lg sm:text-xl text-white my-1">
+            {coveragePercent}%
+          </div>
+          <p className="text-xs font-mono text-slate-300">
+            {playedConcepts} of {counts.total} concepts played
           </p>
         </div>
 
-        <div className="mt-2 border-t border-[#1C2342] pt-2 flex items-center justify-between">
-          {counts.due > 0 ? (
-            <button
-              type="button"
-              onClick={onStartRevision}
-              className="text-[11px] font-mono text-[#F5C542] hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <span>Start revision now</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          ) : (
-            <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
-              <span>Up to date</span>
-            </span>
-          )}
+        <div className="mt-3">
+          <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+            <div
+              style={{ width: `${coveragePercent}%` }}
+              className="h-full bg-cyan-400 transition-all duration-500"
+            />
+          </div>
         </div>
       </div>
 
-      {/* 4. Exam Target & Daily Quota */}
-      <div className="rounded-2xl border-2 border-[#242D52] bg-[#12162B] p-5 shadow-lg flex flex-col justify-between hover:border-[#38467D] transition-colors">
-        <div className="flex items-center justify-between mb-2">
-          <span className="font-pixel text-[10px] text-slate-400 tracking-wider uppercase">
-            Exam Target
-          </span>
-          <Target className="w-4 h-4 text-cyan-400" />
+      {/* 3. Mastered Concepts Card */}
+      <div className="rounded-2xl border-2 border-[#242D52] bg-[#12162B] p-4 sm:p-5 shadow-lg flex flex-col justify-between hover:border-[#38467D] transition-colors">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-pixel text-[10px] text-slate-400 tracking-wider uppercase">
+              Mastered
+            </span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="font-pixel text-lg sm:text-xl text-emerald-400 my-1">
+            {counts.mastered}
+          </div>
+          <p className="text-xs font-mono text-slate-300">
+            {counts.mastered} of {counts.total} concepts
+          </p>
         </div>
 
-        <div className="my-2">
-          {examQuota.daysLeft !== null ? (
-            <>
-              <div className="flex items-baseline gap-2">
-                <span className="font-pixel text-2xl text-cyan-300 font-bold">
-                  {Math.max(0, examQuota.daysLeft)}
-                </span>
-                <span className="text-xs font-mono text-slate-400">
-                  {examQuota.daysLeft === 1 ? 'day left' : 'days left'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-                Recommended pace:{' '}
-                <span className="font-bold text-[#F5C542]">
-                  {examQuota.dailyQuota} {examQuota.dailyQuota === 1 ? 'concept' : 'concepts'} / day
-                </span>{' '}
-                to reach {examInfo.targetReadiness || 85}% readiness.
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="font-pixel text-sm text-slate-300 mt-1">
-                No exam date set
-              </div>
-              <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                Set your exam date to get an automatic daily review quota.
-              </p>
-            </>
-          )}
+        <div className="mt-3 flex items-center gap-1.5 text-[11px] font-mono text-slate-400">
+          <span className="text-amber-400">{counts.shaky} shaky</span>
+          <span>·</span>
+          <span className="text-red-400">{counts.weak} weak</span>
+        </div>
+      </div>
+
+      {/* 4. XP and Rank Card */}
+      <div className="rounded-2xl border-2 border-[#242D52] bg-[#12162B] p-4 sm:p-5 shadow-lg flex flex-col justify-between hover:border-[#38467D] transition-colors">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-pixel text-[10px] text-slate-400 tracking-wider uppercase">
+              Rank & XP
+            </span>
+            <Trophy className="w-4 h-4 text-[#F5C542]" />
+          </div>
+          <div className="font-pixel text-base text-[#F5C542] my-1 flex items-center gap-1.5">
+            <Crown className="w-4 h-4 text-[#F5C542]" />
+            <span>{currentRank.name}</span>
+          </div>
+          <p className="text-xs font-mono text-slate-300">{totalXp} Total XP</p>
         </div>
 
-        <div className="mt-2 border-t border-[#1C2342] pt-2 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onOpenExamModal}
-            className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 hover:underline cursor-pointer"
-          >
-            {examQuota.daysLeft !== null ? 'Change exam date' : 'Set exam date'}
-          </button>
-          <span className="text-[10px] font-mono text-slate-500">
-            {levelsCompleted} / {totalLevels} levels done
-          </span>
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 mb-1">
+            <span>{nextRank ? `To ${nextRank.name}` : 'Max Rank'}</span>
+            <span>{nextRank ? `+${xpToNext} XP` : '★'}</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+            <div
+              style={{ width: `${rankProgress}%` }}
+              className="h-full bg-[#F5C542] transition-all duration-500"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Day Streak Card */}
+      <div className="rounded-2xl border-2 border-[#242D52] bg-[#12162B] p-4 sm:p-5 shadow-lg flex flex-col justify-between hover:border-[#38467D] transition-colors">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-pixel text-[10px] text-slate-400 tracking-wider uppercase">
+              Day Streak
+            </span>
+            <Flame
+              className={`w-4 h-4 ${dayStreak > 0 ? 'text-amber-400 fill-amber-400 animate-pulse' : 'text-slate-500'}`}
+            />
+          </div>
+          <div className="font-pixel text-lg sm:text-xl text-amber-300 my-1">
+            {dayStreak} {dayStreak === 1 ? 'day' : 'days'}
+          </div>
+          <p className="text-xs font-mono text-slate-300">
+            {dayStreak > 0 ? 'Daily consistency pays off!' : 'Play today to start a streak'}
+          </p>
+        </div>
+
+        <div className="mt-3 text-[11px] font-mono text-slate-400">
+          Finished levels or revisions count
         </div>
       </div>
     </div>

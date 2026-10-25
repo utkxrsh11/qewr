@@ -73,10 +73,19 @@ export const CourseOverviewView: React.FC<CourseOverviewViewProps> = ({
   }, [course, totalConceptsCount]);
 
   // Compute concepts due for spaced repetition review
-  const dueCount = useMemo(() => {
-    return course.chapters
-      .flatMap((ch) => ch.concepts || [])
-      .filter((c) => isDue(progress.concepts[c.id])).length;
+  const { dueCount, hasPlayedAnything } = useMemo(() => {
+    let due = 0;
+    let played = 0;
+    course.chapters.forEach((ch) => {
+      ch.concepts.forEach((c) => {
+        const p = progress.concepts[c.id];
+        if (p && p.answered > 0) {
+          played++;
+          if (isDue(p)) due++;
+        }
+      });
+    });
+    return { dueCount: due, hasPlayedAnything: played > 0 };
   }, [course, progress]);
 
   // Filter concepts per chapter based on search and selected type
@@ -238,6 +247,7 @@ export const CourseOverviewView: React.FC<CourseOverviewViewProps> = ({
       {/* Due for Review Banner */}
       <DueBanner
         dueCount={dueCount}
+        hasPlayedAnything={hasPlayedAnything}
         onStartRevision={onStartRevision || onOpenDashboard || (() => {})}
       />
 

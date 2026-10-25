@@ -266,27 +266,52 @@ export const ResultView: React.FC<ResultViewProps> = ({
           <>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-[#F5C542] text-[11px] font-pixel tracking-wider uppercase mb-2">
               <Sparkles className="w-3.5 h-3.5 text-[#F5C542]" />
-              Smart Revision Protocol
+              Smart Revision
             </div>
-            <h1 className="font-pixel text-lg sm:text-2xl text-[#F5C542] mb-2">
-              REVISION COMPLETE!
+            <h1 className="font-pixel text-lg sm:text-2xl text-[#F5C542] mb-2 uppercase">
+              {isOutOfLives
+                ? 'Out of Lives'
+                : result.practiceMode
+                ? 'Practice Complete'
+                : 'Revision Complete!'}
             </h1>
-            <p className="text-xs sm:text-sm text-slate-300 font-mono">
-              {result.accuracyPercent >= 80 ? (
-                <span className="text-emerald-400 font-bold">
-                  Session Rating: Excellent ({result.accuracyPercent}%) · Review Streak +1!
-                </span>
-              ) : (
-                <span className="text-amber-300">
-                  Session Rating: {result.accuracyPercent}% · Review Streak Reset
-                </span>
-              )}
+            <p className="text-xs sm:text-sm text-slate-300 font-mono mb-2">
+              Session rating: {result.accuracyPercent}% accuracy
             </p>
+
+            {/* Stars Display labeled "Session rating" */}
+            <div className="flex flex-col items-center gap-1.5 my-3">
+              <span className="text-[10px] font-pixel text-slate-400 tracking-wider uppercase">
+                Session rating
+              </span>
+              <div className="flex items-center justify-center gap-3">
+                {[1, 2, 3].map((starIdx) => {
+                  const earned = starIdx <= result.stars;
+                  return (
+                    <div
+                      key={starIdx}
+                      className={`p-2.5 rounded-2xl border-2 transition-all duration-300 ${
+                        earned
+                          ? 'bg-[#182348] border-[#F5C542] shadow-[0_0_20px_rgba(245,197,66,0.35)] scale-105'
+                          : 'bg-[#0E1224] border-[#202742] opacity-40 scale-95'
+                      }`}
+                    >
+                      <Star
+                        className={`w-7 h-7 sm:w-9 sm:h-9 ${
+                          earned ? 'text-[#F5C542] fill-[#F5C542]' : 'text-slate-600'
+                        }`}
+                        aria-hidden="true"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </>
         ) : (
           <>
-            <h1 className="font-pixel text-lg sm:text-2xl text-[#F5C542] mb-3">
-              {isOutOfLives ? 'OUT OF LIVES' : result.stars >= 1 ? 'LEVEL COMPLETE!' : 'TRY AGAIN'}
+            <h1 className="font-pixel text-lg sm:text-2xl text-[#F5C542] mb-3 uppercase">
+              {isOutOfLives ? 'Out of Lives' : result.stars >= 1 ? 'Level Complete!' : 'Try Again'}
             </h1>
 
             <p className="text-sm text-slate-300 font-mono">
@@ -403,15 +428,35 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
       {/* 3b. Revision Strength Changes (Spaced Repetition Impact) */}
       {isRevision && result.strengthChanges && result.strengthChanges.length > 0 && (
-        <div className="w-full bg-gradient-to-b from-[#18152B] to-[#12162B] border-2 border-amber-500/40 rounded-xl p-5 mb-6 shadow-lg text-left">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-pixel text-[#F5C542] uppercase tracking-wider flex items-center gap-2">
+        <div
+          role="region"
+          aria-live="polite"
+          aria-label="Concept strength changes and exam readiness update"
+          className="w-full bg-gradient-to-b from-[#18152B] to-[#12162B] border-2 border-amber-500/40 rounded-xl p-5 mb-6 shadow-lg text-left"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pb-3 border-b border-[#252E54]">
+            <div className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-[#F5C542]" />
-              <span>Knowledge Strength Updates</span>
-            </h2>
-            <span className="text-[10px] font-mono text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40">
-              Spaced Repetition
-            </span>
+              <h2 className="text-xs font-pixel text-[#F5C542] uppercase tracking-wider">
+                Strength Changes
+              </h2>
+            </div>
+
+            {/* Overall readiness before and after */}
+            <div className="text-xs font-mono font-bold text-slate-200">
+              Exam readiness{' '}
+              <span className="text-slate-400">
+                {(result as any).readinessBefore !== undefined
+                  ? (result as any).readinessBefore
+                  : Math.max(0, Math.round(result.accuracyPercent * 0.8))}%
+              </span>{' '}
+              to{' '}
+              <span className="text-emerald-400">
+                {(result as any).readinessAfter !== undefined
+                  ? (result as any).readinessAfter
+                  : Math.min(100, Math.round(result.accuracyPercent * 0.95))}%
+              </span>
+            </div>
           </div>
 
           <div className="space-y-2.5">
@@ -419,9 +464,20 @@ export const ResultView: React.FC<ResultViewProps> = ({
               const bPct = Math.round(sc.before * 100);
               const aPct = Math.round(sc.after * 100);
               const deltaPct = aPct - bPct;
-              const isPositive = deltaPct >= 0;
 
-              // Format next due date
+              // Arrow indicator
+              const isUp = deltaPct > 0;
+              const isDown = deltaPct < 0;
+
+              // State chip: mastered (>=80), shaky (>=50), weak (<50)
+              let stateChip = { label: 'Weak', cls: 'bg-red-950/80 text-red-300 border-red-500/40' };
+              if (sc.after >= 0.8) {
+                stateChip = { label: 'Mastered', cls: 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40' };
+              } else if (sc.after >= 0.5) {
+                stateChip = { label: 'Shaky', cls: 'bg-amber-950/80 text-amber-300 border-amber-500/40' };
+              }
+
+              // Next review in N days from dueAt
               const dueMs = new Date(sc.nextDueAt).getTime();
               const diffDays = Math.max(1, Math.round((dueMs - Date.now()) / (86400 * 1000)));
 
@@ -431,26 +487,38 @@ export const ResultView: React.FC<ResultViewProps> = ({
                   className="p-3 rounded-lg bg-[#0C0F1F] border border-[#242A4A] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono"
                 >
                   <div>
-                    <span className="font-semibold text-white text-sm block">
-                      {sc.conceptName}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      Next review due in {diffDays} {diffDays === 1 ? 'day' : 'days'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-white text-sm">
+                        {sc.conceptName}
+                      </span>
+                      <span className={`px-1.5 py-0.2 rounded text-[10px] border ${stateChip.cls}`}>
+                        {stateChip.label}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Next review in {diffDays} {diffDays === 1 ? 'day' : 'days'}
+                    </p>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-400">
-                      {bPct}% <span className="text-slate-500">→</span> <span className="font-bold text-white">{aPct}%</span>
-                    </span>
+                  <div className="flex items-center gap-3 self-end sm:self-center">
+                    <div className="flex items-center gap-1.5 text-slate-300 font-bold">
+                      <span className="text-slate-400">{bPct}%</span>
+                      {isUp && <span className="text-emerald-400 font-bold">↑</span>}
+                      {isDown && <span className="text-red-400 font-bold">↓</span>}
+                      {!isUp && !isDown && <span className="text-slate-500">=</span>}
+                      <span className="text-white">{aPct}%</span>
+                    </div>
+
                     <span
-                      className={`px-2 py-0.5 rounded font-bold text-[11px] ${
-                        isPositive
-                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-600/50'
-                          : 'bg-red-950 text-red-300 border border-red-600/50'
+                      className={`px-2 py-0.5 rounded font-bold text-[11px] border ${
+                        isUp
+                          ? 'bg-emerald-950 text-emerald-300 border-emerald-600/50'
+                          : isDown
+                          ? 'bg-red-950 text-red-300 border-red-600/50'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
                       }`}
                     >
-                      {isPositive ? `+${deltaPct}%` : `${deltaPct}%`}
+                      {isUp ? `+${deltaPct}%` : `${deltaPct}%`}
                     </span>
                   </div>
                 </div>
@@ -644,67 +712,111 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
       {/* 6. Navigation Buttons */}
       <div className="w-full flex flex-wrap items-center justify-center gap-3 sm:gap-4">
-        {onOpenDashboard && (
-          <button
-            type="button"
-            onClick={onOpenDashboard}
-            className="btn-pixel-gold px-6 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer shadow-lg"
-          >
-            <BarChart2 className="w-4 h-4 text-black" />
-            <span>Dashboard</span>
-          </button>
+        {isRevision ? (
+          <>
+            <button
+              type="button"
+              onClick={onPlayAgain}
+              className="btn-pixel-gold px-6 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer shadow-lg"
+            >
+              <RotateCcw className="w-4 h-4 text-black" />
+              <span>Revise again</span>
+            </button>
+
+            {onOpenDashboard && (
+              <button
+                type="button"
+                onClick={onOpenDashboard}
+                className="btn-pixel-dark px-5 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer hover:border-[#F5C542]"
+              >
+                <BarChart2 className="w-4 h-4 text-[#F5C542]" />
+                <span>Back to dashboard</span>
+              </button>
+            )}
+
+            {onOpenWorldMap && (
+              <button
+                type="button"
+                onClick={onOpenWorldMap}
+                className="btn-pixel-teal px-5 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer"
+              >
+                <Compass className="w-4 h-4 text-slate-900" />
+                <span>Back to map</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onBackToCourse}
+              className="btn-pixel-dark px-5 py-3 rounded-lg text-xs sm:text-sm font-medium text-slate-400 hover:text-white flex items-center gap-2 cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4 text-slate-400" />
+              <span>Back to course</span>
+            </button>
+          </>
+        ) : (
+          <>
+            {onOpenDashboard && (
+              <button
+                type="button"
+                onClick={onOpenDashboard}
+                className="btn-pixel-gold px-6 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer shadow-lg"
+              >
+                <BarChart2 className="w-4 h-4 text-black" />
+                <span>Dashboard</span>
+              </button>
+            )}
+
+            {hasNextLevel && result.stars >= 1 && (
+              <button
+                type="button"
+                onClick={onNextLevel}
+                className="btn-pixel-gold px-6 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer shadow-lg"
+              >
+                <span>Next level</span>
+                <ArrowRight className="w-4 h-4 text-black" />
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onPlayAgain}
+              className="btn-pixel-dark px-5 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer hover:border-[#F5C542]"
+            >
+              <RotateCcw className="w-4 h-4 text-[#F5C542]" />
+              <span>Play again</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onReviewConcepts}
+              className="btn-pixel-dark px-5 py-3 rounded-lg text-xs sm:text-sm font-medium text-slate-300 flex items-center gap-2 cursor-pointer"
+            >
+              <BookOpen className="w-4 h-4 text-[#2DD4BF]" />
+              <span>Review concepts</span>
+            </button>
+
+            {onOpenWorldMap && (
+              <button
+                type="button"
+                onClick={onOpenWorldMap}
+                className="btn-pixel-teal px-5 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer"
+              >
+                <Compass className="w-4 h-4 text-slate-900" />
+                <span>World Map</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onBackToCourse}
+              className="btn-pixel-dark px-5 py-3 rounded-lg text-xs sm:text-sm font-medium text-slate-400 hover:text-white flex items-center gap-2 cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4 text-slate-400" />
+              <span>Back to course</span>
+            </button>
+          </>
         )}
-
-        {hasNextLevel && !isRevision && result.stars >= 1 && (
-          <button
-            type="button"
-            onClick={onNextLevel}
-            className="btn-pixel-gold px-6 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer shadow-lg"
-          >
-            <span>Next level</span>
-            <ArrowRight className="w-4 h-4 text-black" />
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={onPlayAgain}
-          className="btn-pixel-dark px-5 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer hover:border-[#F5C542]"
-        >
-          <RotateCcw className="w-4 h-4 text-[#F5C542]" />
-          <span>{isRevision ? 'Replay revision' : 'Play again'}</span>
-        </button>
-
-        {!isRevision && (
-          <button
-            type="button"
-            onClick={onReviewConcepts}
-            className="btn-pixel-dark px-5 py-3 rounded-lg text-xs sm:text-sm font-medium text-slate-300 flex items-center gap-2 cursor-pointer"
-          >
-            <BookOpen className="w-4 h-4 text-[#2DD4BF]" />
-            <span>Review concepts</span>
-          </button>
-        )}
-
-        {onOpenWorldMap && (
-          <button
-            type="button"
-            onClick={onOpenWorldMap}
-            className="btn-pixel-teal px-5 py-3 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-2 cursor-pointer"
-          >
-            <Compass className="w-4 h-4 text-slate-900" />
-            <span>World Map</span>
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={onBackToCourse}
-          className="btn-pixel-dark px-5 py-3 rounded-lg text-xs sm:text-sm font-medium text-slate-400 hover:text-white flex items-center gap-2 cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4 text-slate-400" />
-          <span>Back to course</span>
-        </button>
       </div>
     </div>
   );
